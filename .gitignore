@@ -112,3 +112,8 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Unity editor-local state (never share)
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Rr]ecordings/
