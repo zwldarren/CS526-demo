@@ -4,10 +4,12 @@ using UnityEngine;
 namespace Facet.Game
 {
     /// <summary>
-    /// Builds flat, vertex-coloured polygon meshes at runtime. No textures, no gradients:
-    /// every FACET visual is a flat fill plus a constant-width dark outline, which is exactly
-    /// what <see cref="Polygon"/> produces.
-    /// All polygons must be convex and wound counter-clockwise.
+    /// Builds flat, vertex-coloured meshes at runtime. No textures, no gradients: every FACET visual
+    /// is a flat fill plus a constant-width dark outline. All polygons must be convex and wound
+    /// counter-clockwise.
+    ///
+    /// The Append* + <see cref="Finish"/> trio exists because a few hundred belts or items have to
+    /// land in ONE mesh; building a mesh per object would mean a GameObject per belt.
     /// </summary>
     public static class ProcMesh
     {
@@ -40,29 +42,29 @@ namespace Facet.Game
         }
 
         /// <summary>
-        /// Flat fill + uniform outer outline. The outline is built as one quad per edge rather
-        /// than by scaling the polygon, so the width stays constant no matter the shape.
+        /// Drop one polygon into shared vertex/colour/index buffers, optionally displaced by
+        /// <paramref name="offset"/>. This is what lets a renderer pack every belt or every item
+        /// into a single mesh instead of one GameObject per object.
+        /// The outline is built as one quad per edge rather than by scaling the polygon outward,
+        /// so its width stays constant no matter how many sides the shape has.
         /// </summary>
-        public static Mesh Polygon(IReadOnlyList<Vector2> points, Color fill, Color outline, float outlineWidth, string name = "FACET/Polygon")
+        public static void AppendPolygon(List<Vector3> verts, List<Color> colors, List<int> tris,
+            IReadOnlyList<Vector2> points, Vector2 offset, Color fill, Color outline, float outlineWidth)
         {
             int n = points.Count;
-            // Mesh.SetVertices only takes Vector3 - the implicit Vector2 -> Vector3 conversion
-            // keeps the 2D source points unchanged.
-            var verts = new List<Vector3>(n * 4);
-            var colors = new List<Color>(n * 4);
-            var tris = new List<int>(n * 12);
+            if (n < 3) return;
 
             Vector2 centroid = Vector2.zero;
             for (int i = 0; i < n; i++) centroid += points[i];
-            centroid /= n;
+            centroid = centroid / n + offset;
 
             // Fill: triangle fan from the centroid (valid because polygons are convex).
             for (int i = 0; i < n; i++)
             {
                 int i0 = verts.Count;
                 verts.Add(centroid);
-                verts.Add(points[i]);
-                verts.Add(points[(i + 1) % n]);
+                verts.Add(points[i] + offset);
+                verts.Add(points[(i + 1) % n] + offset);
                 colors.Add(fill);
                 colors.Add(fill);
                 colors.Add(fill);
@@ -71,7 +73,6 @@ namespace Facet.Game
                 tris.Add(i0 + 2);
             }
 
-            // Outline: one outward quad per edge.
             if (outlineWidth > 0f && outline.a > 0f)
             {
                 for (int i = 0; i < n; i++)
@@ -84,10 +85,10 @@ namespace Facet.Game
                     var nrm = new Vector2(d.y, -d.x).normalized * outlineWidth;
 
                     int i0 = verts.Count;
-                    verts.Add(a);
-                    verts.Add(b);
-                    verts.Add(b + nrm);
-                    verts.Add(a + nrm);
+                    verts.Add(a + offset);
+                    verts.Add(b + offset);
+                    verts.Add(b + nrm + offset);
+                    verts.Add(a + nrm + offset);
                     colors.Add(outline);
                     colors.Add(outline);
                     colors.Add(outline);
@@ -96,13 +97,6 @@ namespace Facet.Game
                     tris.Add(i0); tris.Add(i0 + 2); tris.Add(i0 + 3);
                 }
             }
-
-            var mesh = new Mesh { name = name };
-            mesh.SetVertices(verts);
-            mesh.SetColors(colors);
-            mesh.SetTriangles(tris, 0);
-            mesh.RecalculateBounds();
-            return mesh;
         }
 
         /// <summary>
@@ -121,7 +115,7 @@ namespace Facet.Game
             for (int x = 0; x <= width; x++)
             {
                 float cx = x;
-                AddQuad(verts, colors, tris,
+                AppendQuad(verts, colors, tris,
                     new Vector2(cx - h, 0f), new Vector2(cx + h, 0f),
                     new Vector2(cx + h, height), new Vector2(cx - h, height), color);
             }
@@ -129,36 +123,16 @@ namespace Facet.Game
             for (int y = 0; y <= height; y++)
             {
                 float cy = y;
-                AddQuad(verts, colors, tris,
+                AppendQuad(verts, colors, tris,
                     new Vector2(0f, cy - h), new Vector2(width, cy - h),
                     new Vector2(width, cy + h), new Vector2(0f, cy + h), color);
             }
 
-            var mesh = new Mesh { name = name };
-            mesh.SetVertices(verts);
-            mesh.SetColors(colors);
-            mesh.SetTriangles(tris, 0);
-            mesh.RecalculateBounds();
-            return mesh;
+            return Finish(verts, colors, tris, name);
         }
 
-        /// <summary>Axis-aligned quad from four corners in CCW order.</summary>
-        public static Mesh Quad(Vector2 a, Vector2 b, Vector2 c, Vector2 d, Color color, string name = "FACET/Quad")
-        {
-            var verts = new List<Vector3>(4);
-            var colors = new List<Color>(4);
-            var tris = new List<int>(6);
-            AddQuad(verts, colors, tris, a, b, c, d, color);
-
-            var mesh = new Mesh { name = name };
-            mesh.SetVertices(verts);
-            mesh.SetColors(colors);
-            mesh.SetTriangles(tris, 0);
-            mesh.RecalculateBounds();
-            return mesh;
-        }
-
-        private static void AddQuad(List<Vector3> verts, List<Color> colors, List<int> tris,
+        /// <summary>Quad pushed into shared buffers. Four corners, CCW order.</summary>
+        public static void AppendQuad(List<Vector3> verts, List<Color> colors, List<int> tris,
             Vector2 a, Vector2 b, Vector2 c, Vector2 d, Color color)
         {
             int i0 = verts.Count;
@@ -172,6 +146,20 @@ namespace Facet.Game
             colors.Add(color);
             tris.Add(i0); tris.Add(i0 + 1); tris.Add(i0 + 2);
             tris.Add(i0); tris.Add(i0 + 2); tris.Add(i0 + 3);
+        }
+
+        /// <summary>Turn shared buffers into a mesh. Reuses <paramref name="into"/> when given, so a
+        /// renderer that rebuilds every frame does not allocate a new mesh each time.</summary>
+        public static Mesh Finish(List<Vector3> verts, List<Color> colors, List<int> tris, string name, Mesh into = null)
+        {
+            Mesh mesh = into != null ? into : new Mesh();
+            mesh.name = name;
+            mesh.Clear();
+            mesh.SetVertices(verts);
+            mesh.SetColors(colors);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            return mesh;
         }
     }
 }

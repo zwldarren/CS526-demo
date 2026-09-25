@@ -28,15 +28,5 @@ namespace Facet.Core
             Int2 o = d.Offset();
             return new Vec2(o.X, o.Y);
         }
-
-        public static Dir Opposite(this Dir d) => (Dir)(((int)d + 2) & 3);
-
-        /// <summary>90 degrees clockwise when viewed on screen (Y up).</summary>
-        public static Dir RotateCw(this Dir d) => (Dir)(((int)d + 1) & 3);
-
-        public static Dir RotateCcw(this Dir d) => (Dir)(((int)d + 3) & 3);
-
-        /// <summary>True when the direction runs along the X axis (East/West).</summary>
-        public static bool IsHorizontal(this Dir d) => d == Dir.East || d == Dir.West;
     }
 }

@@ -4,116 +4,79 @@ using NUnit.Framework;
 namespace Facet.Tests
 {
     /// <summary>
-    /// EditMode tests for the engine-free simulation. No scene, no Play mode, milliseconds to run.
-    ///
-    /// Two invariants matter more than the rest and are worth guarding forever:
-    ///   * the tick rate is exactly 30 Hz, so balance numbers in the design doc stay true;
-    ///   * the simulation is deterministic, so a save + the same input must replay identically.
+    /// EditMode tests for the engine-free simulation itself: the clock, the map, the defended
+    /// object, and the two invariants worth guarding forever - the tick rate is exactly 30 Hz so
+    /// the balance numbers in the design doc stay true, and the simulation is deterministic so a
+    /// save plus the same input must replay identically.
     /// </summary>
     public class SimulationTests
     {
-        private const float Tol = 1e-4f;
-
-        private static SimWorld NewWorld() => new SimWorld(new TileGrid(64, 36), new SimConfig());
-
-        private static void Tick(SimWorld world, Vec2 move, int count)
-        {
-            var cmd = new InputCommand(move, false, false, Int2.Zero);
-            for (int i = 0; i < count; i++) world.Tick(cmd);
-        }
-
         [Test]
         public void TickRate_IsExactly30Hz()
         {
-            Assert.AreEqual(30f, SimConfig.TickRate, Tol);
+            Assert.AreEqual(30f, SimConfig.TickRate, Sim.Tol);
             Assert.AreEqual(1f / 30f, SimConfig.TickDt, 1e-9f);
         }
 
         [Test]
-        public void HoldingEast_ForOneSecond_MovesExactlyRigSpeed()
+        public void Core_SitsAtTheMapCentre_AtFullHealth_AndIsNotBuildable()
         {
-            var world = NewWorld();
-            Vec2 start = world.Rig.Position;
+            SimWorld world = Sim.NewWorld();
+            var expected = new Int2(world.TileGrid.Width / 2, world.TileGrid.Height / 2);
 
-            Tick(world, new Vec2(1f, 0f), 30);
+            Assert.AreEqual(expected, world.Core.Cell, "the Core is the defended object, dead centre");
+            Assert.AreEqual(world.Config.CoreMaxHp, world.Core.Hp, Sim.Tol);
+            Assert.AreEqual(1f, world.Core.HealthFraction, Sim.Tol);
+            Assert.IsTrue(world.Core.Alive);
 
-            Assert.AreEqual(30, world.TickCount);
-            Assert.AreEqual(1f, world.ElapsedSeconds, Tol);
-            Assert.AreEqual(start.X + 4f, world.Rig.Position.X, Tol, "1 s of movement must equal RigSpeed in tiles");
-            Assert.AreEqual(start.Y, world.Rig.Position.Y, Tol);
+            Assert.AreEqual(TileKind.Core, world.TileGrid.Get(expected));
+            Assert.IsFalse(world.CanPlaceBelt(expected), "nothing may be built on the Core");
         }
 
         [Test]
-        public void DiagonalInput_IsNotFasterThanCardinalInput()
+        public void PausedWorld_DoesNotAdvance()
         {
-            var world = NewWorld();
-            Vec2 start = world.Rig.Position;
-
-            Tick(world, new Vec2(1f, 1f), 30);
-
-            Assert.AreEqual(4f, Vec2.Distance(start, world.Rig.Position), 1e-3f);
-        }
-
-        [Test]
-        public void Wall_StopsOnBlockedAxis_AndSlidesAtComponentSpeed()
-        {
-            var world = NewWorld();
-            world.SpawnRigAt(new Vec2(world.TileGrid.Width - 0.5f, 18f));
-            var diagonal = new Vec2(1f, 1f);
-
-            Tick(world, diagonal, 60);
-
-            Assert.AreEqual(world.TileGrid.Width - world.Config.RigRadius, world.Rig.Position.X, Tol, "must stop at the wall");
-
-            // Sliding keeps the projected component (4 * 0.7071 tiles/s), not full speed.
-            float expectedY = 18f + 60 * SimConfig.TickDt * world.Config.RigSpeed * 0.70710678f;
-            Assert.AreEqual(expectedY, world.Rig.Position.Y, 1e-3f);
-        }
-
-        [Test]
-        public void Rig_NeverLeavesTheMap()
-        {
-            var world = NewWorld();
-            world.SpawnRigAt(world.TileGrid.CellCenter(new Int2(1, 1)));
-
-            for (int i = 0; i < 600; i++)
-            {
-                var cmd = new InputCommand(new Vec2(-1f, -1f), false, false, Int2.Zero);
-                world.Tick(cmd);
-
-                Assert.GreaterOrEqual(world.Rig.Position.X, world.Config.RigRadius - Tol);
-                Assert.GreaterOrEqual(world.Rig.Position.Y, world.Config.RigRadius - Tol);
-            }
-        }
-
-        [Test]
-        public void PausedWorld_AcceptsInputButDoesNotAdvance()
-        {
-            var world = NewWorld();
-            Vec2 position = world.Rig.Position;
+            SimWorld world = Sim.NewWorld();
             int ticks = world.TickCount;
 
             world.Paused = true;
-            Tick(world, new Vec2(1f, 0f), 10);
+            Sim.Tick(world, 10);
 
             Assert.AreEqual(ticks, world.TickCount);
-            Assert.AreEqual(0f, Vec2.Distance(position, world.Rig.Position), Tol);
         }
 
         [Test]
         public void SameCommandsFromSameStart_ReplayIdentically()
         {
-            var a = NewWorld();
-            var b = NewWorld();
+            SimWorld a = Sim.NewWorld(24, 12);
+            SimWorld b = Sim.NewWorld(24, 12);
 
-            for (int i = 0; i < 137; i++)
+            // An identical mix of belt laying, item spawning and stepping.
+            for (int i = 0; i < 40; i++)
             {
-                var cmd = new InputCommand(new Vec2((i % 7) - 3, (i % 5) - 2), false, false, Int2.Zero);
+                var cmd = new InputCommand(true, false, new Int2(2 + (i % 9), 1 + (i % 5)));
                 a.Tick(cmd);
                 b.Tick(cmd);
             }
 
-            Assert.AreEqual(0f, Vec2.Distance(a.Rig.Position, b.Rig.Position), 0f);
+            for (int i = 0; i < 20; i++)
+            {
+                a.TrySpawnItem(new Int2(2, 2), ShapeType.Triangle);
+                b.TrySpawnItem(new Int2(2, 2), ShapeType.Triangle);
+                Sim.Tick(a, 7);
+                Sim.Tick(b, 7);
+            }
+
+            var itemsA = Sim.ItemsIn(a);
+            var itemsB = Sim.ItemsIn(b);
+
+            Assert.AreEqual(itemsA.Count, itemsB.Count, "identical input must produce identical state");
+            for (int i = 0; i < itemsA.Count; i++)
+            {
+                Assert.AreEqual(itemsA[i].Shape, itemsB[i].Shape, "item " + i + " diverged");
+                Assert.AreEqual(0f, Vec2.Distance(itemsA[i].Position, itemsB[i].Position), 0f,
+                    "item " + i + " drifted");
+            }
         }
 
         [Test]
@@ -140,16 +103,6 @@ namespace Facet.Tests
 
             Assert.AreEqual(TileKind.Belt, grid.Get(cell));
             Assert.IsFalse(grid.IsBuildable(cell));
-        }
-
-        [Test]
-        public void Grid_ClampToBounds_KeepsRadiusInsideTheMap()
-        {
-            var grid = new TileGrid(64, 36);
-
-            Assert.AreEqual(new Vec2(0.5f, 0.5f), grid.ClampToBounds(new Vec2(-10f, -10f), 0.5f));
-            Assert.AreEqual(new Vec2(63.5f, 35.5f), grid.ClampToBounds(new Vec2(999f, 999f), 0.5f));
-            Assert.AreEqual(new Vec2(20f, 20f), grid.ClampToBounds(new Vec2(20f, 20f), 0.5f));
         }
     }
 }

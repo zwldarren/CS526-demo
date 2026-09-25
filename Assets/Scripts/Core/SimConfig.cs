@@ -8,10 +8,14 @@ namespace Facet.Core
 
         public const float TickDt = 1f / TickRate;
 
-        /// <summary>Rig movement speed in tiles per second (design doc: 4).</summary>
-        public float RigSpeed = 4f;
+        /// <summary>
+        /// Belt travel speed in tiles per second. Because a belt cell holds exactly one item,
+        /// this is also the belt's throughput in items per second - 1 tile/s therefore means
+        /// exactly 1 item/s, which is the ratio every turret's supply is reasoned about with.
+        /// </summary>
+        public float BeltSpeed = 1f;
 
-        /// <summary>Rig collision radius in tiles. Also its minimum distance from the map edge.</summary>
-        public float RigRadius = 0.42f;
+        /// <summary>HP of the defended object. Reaching 0 loses the run.</summary>
+        public float CoreMaxHp = 100f;
     }
 }

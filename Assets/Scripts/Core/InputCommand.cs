@@ -1,28 +1,28 @@
 namespace Facet.Core
 {
-    /// <summary>Everything an input source may ask the simulation to do in one tick.</summary>
+    /// <summary>
+    /// Everything an input source may ask the simulation to do in one tick.
+    /// Note there is no movement field: the player has no avatar in the world,
+    /// the camera pans freely and only the cursor interacts with the simulation.
+    /// </summary>
     public readonly struct InputCommand
     {
-        /// <summary>Desired move direction, magnitude 0..1. Not normalised by the caller.</summary>
-        public readonly Vec2 Move;
-
-        /// <summary>Left mouse button held - start / continue dragging a belt.</summary>
+        /// <summary>Left mouse button held - starts / continues dragging a belt run.</summary>
         public readonly bool BuildHeld;
 
-        /// <summary>Right mouse button held - remove / rotate.</summary>
+        /// <summary>Right mouse button held - removes whatever is under the cursor.</summary>
         public readonly bool RemoveHeld;
 
-        /// <summary>Tile under the mouse cursor.</summary>
+        /// <summary>Tile under the mouse cursor. (-1,-1) when there is no cursor.</summary>
         public readonly Int2 CursorCell;
 
-        public InputCommand(Vec2 move, bool buildHeld, bool removeHeld, Int2 cursorCell)
+        public InputCommand(bool buildHeld, bool removeHeld, Int2 cursorCell)
         {
-            Move = move;
             BuildHeld = buildHeld;
             RemoveHeld = removeHeld;
             CursorCell = cursorCell;
         }
 
-        public static readonly InputCommand None = new InputCommand(Vec2.Zero, false, false, Int2.Zero);
+        public static readonly InputCommand None = new InputCommand(false, false, new Int2(-1, -1));
     }
 }

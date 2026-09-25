@@ -18,7 +18,6 @@ namespace Facet.Core
         }
 
         public static readonly Vec2 Zero = new Vec2(0f, 0f);
-        public static readonly Vec2 One = new Vec2(1f, 1f);
 
         public static Vec2 operator +(Vec2 a, Vec2 b) => new Vec2(a.X + b.X, a.Y + b.Y);
         public static Vec2 operator -(Vec2 a, Vec2 b) => new Vec2(a.X - b.X, a.Y - b.Y);
@@ -29,20 +28,7 @@ namespace Facet.Core
         public static bool operator ==(Vec2 a, Vec2 b) => a.Equals(b);
         public static bool operator !=(Vec2 a, Vec2 b) => !a.Equals(b);
 
-        public float SqrMagnitude => X * X + Y * Y;
         public float Magnitude => MathF.Sqrt(X * X + Y * Y);
-
-        /// <summary>Unit-length copy, or Zero if this vector is degenerate.</summary>
-        public Vec2 Normalized
-        {
-            get
-            {
-                float m2 = SqrMagnitude;
-                if (m2 <= 1e-12f) return Zero;
-                float inv = 1f / MathF.Sqrt(m2);
-                return new Vec2(X * inv, Y * inv);
-            }
-        }
 
         public static Vec2 Lerp(Vec2 a, Vec2 b, float t)
         {

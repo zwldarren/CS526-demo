@@ -49,19 +49,6 @@ namespace Facet.Core
             return new Int2((int)MathF.Floor(world.X), (int)MathF.Floor(world.Y));
         }
 
-        /// <summary>Clamp a world position so a circle of the given radius stays on the map.</summary>
-        public Vec2 ClampToBounds(Vec2 world, float radius)
-        {
-            float minX = radius;
-            float maxX = Width - radius;
-            float minY = radius;
-            float maxY = Height - radius;
-
-            float x = world.X < minX ? minX : (world.X > maxX ? maxX : world.X);
-            float y = world.Y < minY ? minY : (world.Y > maxY ? maxY : world.Y);
-            return new Vec2(x, y);
-        }
-
         private int Index(Int2 c) => c.Y * Width + c.X;
     }
 }
