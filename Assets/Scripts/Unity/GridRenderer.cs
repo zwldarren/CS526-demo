@@ -29,6 +29,9 @@ namespace Facet.Game
             _grid = World.TileGrid;
         }
 
+        /// <summary>The ground follows the map, and so do its lines.</summary>
+        protected override void OnWorldRebound() => _grid = World.TileGrid;
+
         protected override void AppendFrame(in ViewFrame frame)
         {
             float half = Mathf.Max(Colors.GridLinePixels * frame.WorldPerPixel * 0.5f, MinHalfWidth);

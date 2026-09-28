@@ -11,13 +11,15 @@ namespace Facet.Core
     ///
     ///   1. build commands     - what the player placed this tick (and paid for)
     ///   2. belts              - items advance and hand off
-    ///   3. production         - drills mine, decomposers split (they read step 2's arrivals)
-    ///   4. transit            - pipes carry, splitters balance (they read step 2's arrivals)
-    ///   5. core sink          - deliveries into the Core bank as circles
-    ///   6. turrets            - eat, jam, fire (they read the arrivals and the belt queue)
-    ///   7. projectiles        - fly and burst
-    ///   8. enemies            - walk and hit the Core
-    ///   9. waves              - spawn, and decide whether the wave or the run is over
+    ///   3. machines           - every machine's behaviour, in map order (they read step 2's arrivals)
+    ///   4. core sink          - deliveries into the Core bank as circles
+    ///   5. projectiles        - fly and burst (they read the shots step 3 fired)
+    ///   6. enemies            - walk and hit the Core
+    ///   7. waves              - spawn, and decide whether the wave or the run is over
+    ///
+    /// <see cref="Events"/> is filled alongside all seven. It is derived - the simulation never reads
+    /// it back - so the stream cannot change what a tick does, and every reaction to the game happens
+    /// through it instead of through polling for edges.
     /// </summary>
     public sealed class SimWorld
     {
@@ -30,6 +32,21 @@ namespace Facet.Core
         public readonly WaveDirector Waves;
         public readonly SimConfig Config;
         public readonly EconomyState Economy;
+
+        /// <summary>The content this run is played with: every cost, stat and recipe the simulation
+        /// reads comes through here. Injected rather than read from a static, so a test or a replay
+        /// can run a different table and still be reproducible.</summary>
+        public readonly ContentDatabase Content;
+
+        /// <summary>
+        /// What the simulation reported having done this run: built, removed, jammed, banked, shot,
+        /// killed, damaged, and the wave and run endings. Filled by the tick and read by whoever
+        /// reacts - a sound, a flash, a HUD ticker.
+        ///
+        /// <b>The simulation appends; the reader clears.</b> See <see cref="SimEventBuffer"/> for why
+        /// that is the reader's job and not the tick's.
+        /// </summary>
+        public readonly SimEventBuffer Events = new SimEventBuffer();
 
         /// <summary>The map this run is played on. Fixed for the world's lifetime.</summary>
         public MapDefinition Map { get; }
@@ -54,35 +71,37 @@ namespace Facet.Core
         /// ghost's otherwise.</summary>
         public Dir PlacementDirection => _build.PlacementDirection;
 
-        private readonly ProductionSystem _production;
-        private readonly TransitSystem _transit;
+        private readonly MachineSystem _machineSystem;
         private readonly CoreSinkSystem _sink;
-        private readonly TurretSystem _turrets;
         private readonly BuildController _build;
 
         /// <summary>A start-wave request that has not been applied yet. Set between ticks, consumed
         /// by <see cref="Tick"/>.</summary>
         private bool _waveRequested;
 
-        public SimWorld(MapDefinition map, SimConfig config)
+        /// <summary>A restart request from the HUD's button, applied on the next tick so a click lands
+        /// on a tick boundary like every other input instead of mutating the run mid-frame.</summary>
+        private bool _restartRequested;
+
+        public SimWorld(MapDefinition map, SimConfig config, ContentDatabase content = null)
         {
             Map = map ?? throw new ArgumentNullException(nameof(map));
             Config = config ?? throw new ArgumentNullException(nameof(config));
+            Content = content ?? ContentDatabase.Default;
 
             TileGrid = new TileGrid(map.Width, map.Height);
             Patches = new ShapePatchField(TileGrid);
-            Belts = new BeltField(TileGrid);
-            Machines = new MachineField(TileGrid, Patches);
-            Enemies = new EnemyField();
+            Belts = new BeltField(TileGrid, Patches, Events);
+            Machines = new MachineField(TileGrid, Patches, Belts, Content);
+            Enemies = new EnemyField(Content, Events);
             Projectiles = new ProjectileField();
-            Waves = new WaveDirector(Enemies, map);
-            Economy = new EconomyState(map.StartCircles);
+            Waves = new WaveDirector(Enemies, map, Events);
+            Economy = new EconomyState(Content, map.StartCircles);
 
-            _production = new ProductionSystem(TileGrid, Patches, Belts, Machines);
-            _transit = new TransitSystem(TileGrid, Belts, Machines);
-            _sink = new CoreSinkSystem(TileGrid, Belts, Economy);
-            _turrets = new TurretSystem(TileGrid, Belts, Machines, Enemies, Projectiles);
-            _build = new BuildController(TileGrid, Belts, Machines, Economy);
+            _machineSystem = new MachineSystem(TileGrid, Patches, Belts, Machines, Enemies, Projectiles,
+                Content, Events);
+            _sink = new CoreSinkSystem(TileGrid, Belts, Economy, Events);
+            _build = new BuildController(TileGrid, Belts, Machines, Economy, Events);
 
             PlaceCore(CoreOrigin(TileGrid));
             Maps.PlacePatches(TileGrid, Patches, map);
@@ -92,9 +111,17 @@ namespace Facet.Core
         /// <summary>Advance one fixed step. Call at exactly SimConfig.TickRate Hz.</summary>
         public void Tick(InputCommand cmd)
         {
+            // Stamp the stream before anything can report: every event this tick carries this tick's
+            // number, which is what lets a reader place it in time after several catch-up ticks.
+            Events.Tick = TickCount;
+
             // Restart is honoured even while paused or after the run ended: it is the only way back.
-            if (cmd.RestartPressed)
+            // The HUD's button goes through RequestRestart for the same reason the start-wave button
+            // goes through RequestNextWave: a click happens between ticks, and this world is what
+            // knows the tick order.
+            if (cmd.RestartPressed || _restartRequested)
             {
+                _restartRequested = false;
                 Restart();
                 return;
             }
@@ -104,16 +131,19 @@ namespace Facet.Core
                 // A request that arrives while the world is stopped is dropped, not queued: pausing
                 // and clicking the button in the same breath must not start a wave on resume.
                 _waveRequested = false;
+
+                // Selection, though, is not a world change - the HUD's build bar keeps responding
+                // while the run is held, so the highlighted tile follows the click. It comes through
+                // the same command (and the same drag latch) as a number key.
+                _build.Select(cmd.Selected);
                 return;
             }
 
             _build.Apply(cmd);
 
             Belts.Step(SimConfig.TickDt, Config.BeltSpeed);
-            _production.Step(SimConfig.TickDt);
-            _transit.Step(SimConfig.TickDt);
+            _machineSystem.Step(SimConfig.TickDt);
             _sink.Step(Core.Cell);
-            _turrets.Step(SimConfig.TickDt);
             Projectiles.Step(SimConfig.TickDt, Enemies);
             Enemies.Step(SimConfig.TickDt, ref Core);
             Waves.Step(SimConfig.TickDt);
@@ -130,8 +160,16 @@ namespace Facet.Core
                 Waves.StartNextWave();
             }
 
-            if (!Core.Alive) Status = GameStatus.Lost;
-            else if (Waves.Finished) Status = GameStatus.Won;
+            if (!Core.Alive)
+            {
+                Status = GameStatus.Lost;
+                Events.RunEnded(won: false);
+            }
+            else if (Waves.Finished)
+            {
+                Status = GameStatus.Won;
+                Events.RunEnded(won: true);
+            }
 
             TickCount++;
         }
@@ -151,7 +189,7 @@ namespace Facet.Core
             Maps.PlacePatches(TileGrid, Patches, Map);
 
             Waves.Reset();
-            _turrets.Reset();
+            _machineSystem.Reset();
             _build.Reset();
             Economy.Reset(Map.StartCircles);
 
@@ -159,6 +197,9 @@ namespace Facet.Core
             Status = GameStatus.Playing;
             TickCount = 0;
             _waveRequested = false;
+            _restartRequested = false;
+            Events.Tick = 0;
+            Events.Clear();
         }
 
         /// <summary>Start the next wave immediately, if there is one. The N key and the HUD's button
@@ -169,6 +210,10 @@ namespace Facet.Core
         /// <summary>Ask for the next wave on the next tick. The HUD's button calls this because a
         /// click happens between ticks and this world is the only thing that knows the tick order.</summary>
         public void RequestNextWave() => _waveRequested = true;
+
+        /// <summary>Ask for the run to restart on the next tick. The HUD's restart button calls this;
+        /// the R key still goes through <see cref="InputCommand.RestartPressed"/>.</summary>
+        public void RequestRestart() => _restartRequested = true;
 
         public bool CanPlace(BuildKind kind, Int2 cell) => _build.CanPlace(kind, cell);
 
@@ -205,7 +250,7 @@ namespace Facet.Core
         public void CountTurrets(out int total, out int armed) => Machines.CountTurrets(out total, out armed);
 
         /// <summary>Shots fired this run. Read by the tests and available to a HUD.</summary>
-        public int ShotsFired => _turrets.ShotsFired;
+        public int ShotsFired => _machineSystem.ShotsFired;
 
         private void PlaceCore(Int2 cell)
         {

@@ -27,6 +27,11 @@ namespace Facet.Game
         private readonly List<BeltSnapshot> _belts = new List<BeltSnapshot>();
         private int _seenRevision = -1;
 
+        /// <summary>A new world starts its belt revision at zero, which is a number this view may
+        /// already have drawn - so the cache has to be dropped or the new map's belts would never
+        /// appear.</summary>
+        protected override void OnWorldRebound() => _seenRevision = -1;
+
         protected override Palette.Layer Layer => Colors.BeltLayer;
 
         /// <summary>Items moving deliberately do not bump the revision, so a rebuild means a cell
@@ -48,7 +53,7 @@ namespace Facet.Game
             for (int i = 0; i < _belts.Count; i++)
             {
                 BeltSnapshot belt = _belts[i];
-                var centre = new Vector2(belt.Cell.X + 0.5f, belt.Cell.Y + 0.5f);
+                var centre = CellCentre(belt.Cell);
                 Color bed = belt.Jammed ? Colors.Jam : Colors.Belt;
 
                 // The hub every lane docks into. It is also the corner joint: an L's two lanes meet
@@ -82,23 +87,9 @@ namespace Facet.Game
 
         /// <summary>Would a belt on <paramref name="cell"/> deliver into this tile? Belts dock into
         /// each other whatever way the neighbour faces (a head-to-head pair is a visible mistake,
-        /// not a gap), and into anything that eats: a machine or the Core.</summary>
-        private bool EatsFrom(Int2 cell)
-        {
-            switch (World.TileGrid.Get(cell))
-            {
-                case TileKind.Belt:
-                case TileKind.Core:
-                case TileKind.Drill:
-                case TileKind.Decomposer:
-                case TileKind.Pipe:
-                case TileKind.Splitter:
-                case TileKind.Turret:
-                    return true;
-                default:
-                    return false;
-            }
-        }
+        /// not a gap), and into anything that eats: a machine or the Core. "Eats" is one rule in
+        /// Core, so a new machine docks without this view being told about it.</summary>
+        private bool EatsFrom(Int2 cell) => World.TileGrid.Get(cell).Eats();
 
         /// <summary>Does the neighbour on <paramref name="side"/> push items onto this belt?</summary>
         private bool DeliversInto(BeltSnapshot belt, Dir side)
@@ -108,25 +99,15 @@ namespace Facet.Game
             if (World.Belts.TryGet(neighbour, out BeltState other) && other.Direction == side.Opposite())
                 return true;
 
-            if (!World.Machines.TryGet(neighbour, out MachineState machine)) return false;
-
-            switch (machine.Kind)
-            {
-                // Their facing is their output, and it points at me.
-                case TileKind.Drill:
-                case TileKind.Decomposer:
-                    return machine.Direction == side.Opposite();
-                // I am the port it outputs on when my own flow leads away from the hub.
-                case TileKind.Splitter:
-                    return belt.Direction == side.Opposite();
-                default:
-                    return false;
-            }
+            // A machine pushes onto me when the side facing me is one of its computed output ports -
+            // the same mask the simulation pushes through, not a second reading of the same rule.
+            return World.Machines.TryGetSnapshot(neighbour, out MachineSnapshot machine)
+                && machine.OutMask.Has(side.Opposite());
         }
 
         private void AppendChevron(BeltSnapshot belt)
         {
-            var centre = new Vector2(belt.Cell.X + 0.5f, belt.Cell.Y + 0.5f);
+            var centre = CellCentre(belt.Cell);
             Palette.BeltLook look = Colors.Belts;
             Color color = belt.Jammed ? Colors.Outline : Colors.BeltArrow;
 

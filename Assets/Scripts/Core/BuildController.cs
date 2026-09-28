@@ -19,6 +19,10 @@ namespace Facet.Core
     /// belt walk follows it too, so a run drawn upwards leaves the press cell *upwards* rather than
     /// stepping sideways first, and so a run drawn out of a machine leaves along the same side
     /// <see cref="PointMachineAtTheRun"/> aims that machine at.
+    ///
+    /// A drag is also one gesture in the *other* sense: what is being built is decided by the press and
+    /// does not change until the button comes up, so a selection change under the player's hand cannot
+    /// turn "aim a drill" into "pave from here" (<see cref="Apply"/>).
     /// </summary>
     public sealed class BuildController
     {
@@ -28,6 +32,10 @@ namespace Facet.Core
         private readonly BeltField _belts;
         private readonly MachineField _machines;
         private readonly EconomyState _economy;
+
+        /// <summary>The stream placements and removals are reported on. Derived telemetry: the
+        /// controller's decisions are unchanged by it.</summary>
+        private readonly SimEventBuffer _events;
 
         private bool _dragging;
         private bool _machinePress;
@@ -51,12 +59,14 @@ namespace Facet.Core
                 ? DominantDirection(_pressCell, _dragCell)
                 : GhostDirection;
 
-        public BuildController(TileGrid grid, BeltField belts, MachineField machines, EconomyState economy)
+        public BuildController(TileGrid grid, BeltField belts, MachineField machines, EconomyState economy,
+            SimEventBuffer events)
         {
             _grid = grid ?? throw new ArgumentNullException(nameof(grid));
             _belts = belts ?? throw new ArgumentNullException(nameof(belts));
             _machines = machines ?? throw new ArgumentNullException(nameof(machines));
             _economy = economy ?? throw new ArgumentNullException(nameof(economy));
+            _events = events ?? throw new ArgumentNullException(nameof(events));
             Reset();
         }
 
@@ -76,7 +86,7 @@ namespace Facet.Core
         /// stockpile can cover it is <see cref="EconomyState.CanAfford"/>, and the cursor ghost reads
         /// both. (The twist's costs live in circles, and circles live in the economy.)</summary>
         public bool CanPlace(BuildKind kind, Int2 cell)
-            => kind == BuildKind.Belt ? _grid.IsBuildable(cell) : _machines.CanPlace(kind, cell);
+            => kind == BuildKind.Belt ? _grid.CanLayBelt(cell) : _machines.CanPlace(kind, cell);
 
         /// <summary>Place one building and pay for it. A drag lays belts cell by cell through this,
         /// so a line simply stops growing when the stockpile runs dry - skipped like a blocked tile,
@@ -92,8 +102,14 @@ namespace Facet.Core
 
             // Unreachable in practice - CanPlace just answered the same question - but a spend with
             // no placement must never stand.
-            if (!placed) _economy.Refund(kind);
-            return placed;
+            if (!placed)
+            {
+                _economy.Refund(kind);
+                return false;
+            }
+
+            _events.Built(cell, _economy.CostOf(kind));
+            return true;
         }
 
         /// <summary>
@@ -110,19 +126,41 @@ namespace Facet.Core
             {
                 if (!_belts.TryRemove(cell)) return false;
                 _economy.Refund(BuildKind.Belt);
+                _events.Removed(cell, _economy.CostOf(BuildKind.Belt));
                 return true;
             }
             if (_machines.TryGet(cell, out MachineState machine) && _machines.TryRemove(cell))
             {
                 _economy.Refund(machine.Build);
+                _events.Removed(cell, _economy.CostOf(machine.Build));
                 return true;
             }
             return false;
         }
 
+        /// <summary>
+        /// Change the selection outside the press/release gesture. This is how the HUD's build bar
+        /// selects, and it is deliberately the same door a number key comes through: the next tick
+        /// carries it in <see cref="InputCommand.Selected"/> so there is still exactly one owner of
+        /// the state. A gesture already in progress keeps its own selection, so clicking a palette
+        /// tile can never re-purpose the drag the player is halfway through making.
+        /// </summary>
+        public void Select(BuildKind kind)
+        {
+            if (_dragging) return;
+            Selected = kind;
+        }
+
         public void Apply(InputCommand cmd)
         {
-            Selected = cmd.Selected;
+            // The press decides what is being built; the selection waits for the next gesture. Updating
+            // it mid-drag would re-purpose the gesture half way through it: aiming a drill, tapping the
+            // belt key and letting go would lay a belt run out of the press cell instead of placing the
+            // drill. That is the destructive surprise the belt walk already refuses to allow (only cells
+            // this drag owns may be re-pointed), and latching is the same rule one level up. The ghost
+            // therefore shows what the release will actually build.
+            Select(cmd.Selected);
+
             if (cmd.RotateSteps != 0) GhostDirection = Rotate(GhostDirection, cmd.RotateSteps);
 
             if (cmd.RemoveHeld)

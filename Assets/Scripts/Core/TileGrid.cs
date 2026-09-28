@@ -34,11 +34,25 @@ namespace Facet.Core
             _tiles[Index(c)] = kind;
         }
 
-        /// <summary>True when something already occupies the tile.</summary>
-        public bool IsOccupied(Int2 c) => Get(c) != TileKind.Empty;
+        /// <summary>True when something already occupies the tile as a building.</summary>
+        public bool IsOccupied(Int2 c) => Get(c).IsBuilding();
 
-        /// <summary>True when a building may be placed here (in bounds and free).</summary>
-        public bool IsBuildable(Int2 c) => InBounds(c) && !IsOccupied(c);
+        /// <summary>
+        /// True when a belt may be laid here: in bounds, and not already holding something.
+        ///
+        /// A shape patch qualifies, and that is the point rather than a technicality. A drill pushes its
+        /// item onto the tile beside it, so inside a wider vein every neighbour is ore - a 3x3 patch was
+        /// nine cells of ore with the middle one unworkable, and the drill standing on it mined nothing
+        /// forever with no way for the player to see why. Transport crosses ore.
+        ///
+        /// The ore is not consumed by that: the patch is recorded in <see cref="ShapePatchField"/>
+        /// independently of this grid's kind, so the tile is still a patch under the belt and removing
+        /// the belt hands it back (see <see cref="BeltField.TryRemove"/>). Reserving patches for drills
+        /// is a rule about which <em>machine</em> may stand on one, and that lives in
+        /// <see cref="MachineField.CanPlace"/>.
+        /// </summary>
+        public bool CanLayBelt(Int2 c)
+            => InBounds(c) && (Get(c) == TileKind.Empty || Get(c) == TileKind.ShapePatch);
 
         /// <summary>Wipe every tile back to empty ground. Only used by a restart, which re-stamps the
         /// terrain immediately afterwards.</summary>

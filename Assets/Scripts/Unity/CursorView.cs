@@ -86,9 +86,9 @@ namespace Facet.Game
             else
             {
                 // A machine is a single tile with a facing, so the ghost is its footprint plus the
-                // arrow it will be built facing - except the splitter and the decomposer, which have
-                // no facing: their ports are read off the belts around them, so an arrow would
-                // promise what Q/E cannot turn.
+                // arrow it will be built facing - except the machines that have no facing, whose
+                // ports are read off the belts around them, so an arrow would promise what Q/E cannot
+                // turn.
                 Color body = edge;
                 body.a = look.BodyAlpha;
                 float bodyInset = look.BodyInset;
@@ -96,12 +96,26 @@ namespace Facet.Game
                     new Vector2(x + bodyInset, y + bodyInset), new Vector2(x + 1f - bodyInset, y + bodyInset),
                     new Vector2(x + 1f - bodyInset, y + 1f - bodyInset), new Vector2(x + bodyInset, y + 1f - bodyInset), body);
 
-                if (_seenKind != BuildKind.Splitter && _seenKind != BuildKind.Decomposer)
+                if (HasFacing(_seenKind))
                     AppendChevron(new Vector2(x + 0.5f, y + 0.5f), _seenDirection,
                         look.ChevronBack, look.ChevronHalfWidth, look.ChevronLength, edge);
             }
 
-            if (BuildCatalog.IsTurret(_seenKind)) AppendRangeRing(new Vector2(x + 0.5f, y + 0.5f));
+            if (World.Content.IsTurret(_seenKind)) AppendRangeRing(new Vector2(x + 0.5f, y + 0.5f));
+        }
+
+        /// <summary>Does a placement of this kind show its facing? The ghost draws an arrow only for
+        /// the machines whose facing means something, and it asks <em>the run's</em> content table
+        /// rather than listing kinds - the splitter and every converter read their ports off the
+        /// belts around them, so an arrow on their ghost would promise what Q/E cannot turn.
+        ///
+        /// The run's table and not <see cref="ContentDatabase.Default"/>: a custom table can make any
+        /// building a converter or a splitter, and a ghost that read the shipped numbers would then
+        /// disagree with the ring the same method draws beside it.</summary>
+        private bool HasFacing(BuildKind kind)
+        {
+            BehaviorKind behavior = World.Content.Machine(kind).Behavior;
+            return behavior != BehaviorKind.Converter && behavior != BehaviorKind.Splitter;
         }
 
         /// <summary>An inset border around a cell, as four quads.</summary>
@@ -131,7 +145,7 @@ namespace Facet.Game
         /// </summary>
         private void AppendRangeRing(Vector2 centre)
         {
-            float radius = Balance.Turret(_seenKind).Range;
+            float radius = World.Content.Turret(_seenKind).Range;
             float half = Mathf.Max(Colors.GridLinePixels * 2f * WorldPerPixel, 0.012f) * 0.5f;
             Color color = _seenValid ? Colors.RangeRing : Colors.CursorBlocked;
 

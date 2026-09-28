@@ -32,6 +32,11 @@ namespace Facet.Core
 
         private readonly EnemyField _enemies;
         private readonly MapDefinition _map;
+
+        /// <summary>The stream waves are announced on, so a view can react to a wave starting or being
+        /// cleared without polling the director's state for edges.</summary>
+        private readonly SimEventBuffer _events;
+
         private readonly float[] _groupTimer = new float[MaxGroups];
         private readonly int[] _groupSpawned = new int[MaxGroups];
 
@@ -75,10 +80,11 @@ namespace Facet.Core
         /// different campaign without a code change here.</summary>
         private WaveDefinition[] Table => _map.Waves;
 
-        public WaveDirector(EnemyField enemies, MapDefinition map)
+        public WaveDirector(EnemyField enemies, MapDefinition map, SimEventBuffer events)
         {
             _enemies = enemies ?? throw new ArgumentNullException(nameof(enemies));
             _map = map ?? throw new ArgumentNullException(nameof(map));
+            _events = events ?? throw new ArgumentNullException(nameof(events));
             Reset();
         }
 
@@ -174,6 +180,8 @@ namespace Facet.Core
                 _groupTimer[g] = wave.Groups[g].FirstDelay;
                 _groupSpawned[g] = 0;
             }
+
+            _events.WaveStarted(CurrentWave);
         }
 
         private void Spawn(float dt)
@@ -209,6 +217,7 @@ namespace Facet.Core
             int cleared = CurrentWave;
             _waveIndex = -1;
             CurrentWave = 0;
+            _events.WaveCleared(cleared);
 
             if (cleared >= Table.Length)
             {

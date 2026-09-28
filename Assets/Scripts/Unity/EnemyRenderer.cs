@@ -14,16 +14,36 @@ namespace Facet.Game
     /// health, and the four possible bodies are cached once instead of regenerated per enemy per
     /// frame. And every enemy wears its own weakness as an icon, in the exact colour that ammo rides
     /// the belts in, so the counter-pick is one glance rather than a trip through the codex.
+    ///
+    /// The body and the weakness icon may each be overridden from the Palette's
+    /// <see cref="Palette.Visuals"/>: an enemy body override replaces the health-shaped polygon, and
+    /// the weakness icon follows the same shape override the belt items use, so the two keep reading
+    /// as one shape.
+    ///
+    /// It is also the first consumer of the simulation's event stream: a shot that lands flashes the
+    /// enemy it hit, and a kill leaves an expanding ring where the enemy died. Both come straight off
+    /// <see cref="SimWorld.Events"/> - the simulation says what happened, the view decides what that
+    /// looks like - so no reaction here can change the fight it is reporting on.
     /// </summary>
     [DefaultExecutionOrder(112)]
     public sealed class EnemyRenderer : MeshView
     {
         private readonly List<EnemySnapshot> _enemies = new List<EnemySnapshot>();
 
+        /// <summary>Enemies hit in the last few ticks, as a fixed ring of (id, expiry tick) - so a
+        /// wave of hits costs no allocation and never needs pruning, since a stale slot simply stops
+        /// matching on its expiry tick.</summary>
+        private const int MaxFlashes = 32;
+        private readonly int[] _flashId = new int[MaxFlashes];
+        private readonly int[] _flashUntilTick = new int[MaxFlashes];
+        private int _flashCursor;
+
         /// <summary>Bodies indexed by side count minus three: [0]=3 sides (dead-ish) .. [3]=6 sides (full health).</summary>
         private readonly Vector2[][] _bodies = new Vector2[4][];
 
-        private ShapeOutlines _weaknessIcons;
+        private VisualStyle _spike;
+        private Vector2[] _spikePoints;
+        private ShapeIconSet _weakness;
 
         /// <summary>Reused per frame: which spawn points the NEXT wave walks in from. Sized to the
         /// map at initialization, since the map is what owns its entry points.</summary>
@@ -39,11 +59,27 @@ namespace Facet.Game
             for (int sides = 3; sides <= 6; sides++)
                 _bodies[sides - 3] = ProcMesh.RegularPolygon(sides, Colors.Enemies.BodyRadius, 90f);
 
-            // Same silhouettes as the items, so a weakness icon and the ammo that counters it are
-            // recognisably the same shape.
-            _weaknessIcons = ShapeOutlines.AtRadius(Colors.Enemies.WeaknessRadius, Colors.CircleSides);
+            _spike = Colors.Visuals.Enemies.Spike;
+            _spikePoints = VisualShapes.Points(_spike, Colors.CircleSides);
+
+            // Same shape override as the belt items, so a weakness icon and the ammo that counters it
+            // are recognisably the same shape; no outline - an outlined shape inside an outlined body
+            // reads as noise.
+            _weakness = Colors.ShapeIcons(Colors.Enemies.WeaknessRadius, 0f);
 
             _nextWaveSpawns = new bool[World.Map.SpawnPoints.Length];
+        }
+
+        /// <summary>A new map has its own entry points, and its own enemies: the markers sized for the
+        /// old map, and the hit flashes pointing at enemies that no longer exist, both have to go.</summary>
+        protected override void OnWorldRebound()
+        {
+            _nextWaveSpawns = new bool[World.Map.SpawnPoints.Length];
+            for (int i = 0; i < _flashId.Length; i++)
+            {
+                _flashId[i] = 0;
+                _flashUntilTick[i] = 0;
+            }
         }
 
         /// <summary>Enemies are always moving, so this view rebuilds every frame.</summary>
@@ -51,31 +87,127 @@ namespace Facet.Game
 
         protected override void AppendFrame(in ViewFrame frame)
         {
+            SampleHits();
+
             World.Enemies.GetEnemies(_enemies);
             float outlineWidth = OutlineWidth;
+            BeginSprites();
 
             for (int i = 0; i < _enemies.Count; i++)
             {
                 EnemySnapshot enemy = _enemies[i];
-
-                int sides = Mathf.Clamp(3 + Mathf.RoundToInt(3f * enemy.HealthFraction), 3, 6);
                 Vec2 p = Vec2.Lerp(enemy.PreviousPosition, enemy.Position, frame.Alpha);
                 var at = new Vector2(p.X, p.Y);
 
                 // Red outline only while it is actually hurting the Core - damage in progress,
                 // not damage taken.
                 Color outline = enemy.Attacking ? Colors.Jam : Colors.Outline;
-                AppendPolygon(_bodies[sides - 3], at,
-                    Colors.EnemyColor(enemy.Kind), outline, outlineWidth);
+                AppendEnemyBody(enemy, at, outline, outlineWidth);
 
-                // No outline on the weakness icon: an outlined shape inside an outlined body is
-                // noise, and the fill colour already matches the ammo it is weak to.
-                Vector2[] weak = _weaknessIcons[enemy.Weakness];
-                if (weak != null)
-                    AppendPolygon(weak, at, Colors.ShapeColor(enemy.Weakness), Colors.Outline, 0f);
+                AppendIcon(_weakness, enemy.Weakness, at, null);
             }
 
             AppendSpawnMarkers();
+            AppendKillBursts();
+            EndSprites();
+        }
+
+        /// <summary>
+        /// Read the tick's event stream and note which enemies a shot landed on. This is the whole of
+        /// the view's hit bookkeeping: the simulation already decided what happened, so there is no
+        /// health comparison or edge detection here, and a dropped event costs one frame of flash and
+        /// nothing else.
+        /// </summary>
+        private void SampleHits()
+        {
+            SimEventBuffer events = World.Events;
+            int until = World.TickCount + Colors.Enemies.HitFlashTicks;
+
+            for (int i = 0; i < events.Count; i++)
+            {
+                SimEvent e = events[i];
+                if (e.Kind != SimEventKind.EnemyDamaged) continue;
+
+                _flashId[_flashCursor] = e.EnemyId;
+                _flashUntilTick[_flashCursor] = until;
+                _flashCursor = (_flashCursor + 1) % MaxFlashes;
+            }
+        }
+
+        /// <summary>Is this enemy inside its flash window? False once the window has passed, which is
+        /// what expires a slot without anyone having to sweep the ring.</summary>
+        private bool IsFlashing(int id)
+        {
+            int now = World.TickCount;
+            for (int i = 0; i < MaxFlashes; i++)
+                if (_flashId[i] == id && _flashUntilTick[i] > now) return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// The kill burst: an expanding, fading ring where each enemy recently died. The simulation
+        /// said "killed here", and this is the view's answer - the one piece of feedback the design
+        /// asks a kill to produce, hung off the event stream rather than off a health edge this view
+        /// would have had to track itself.
+        /// </summary>
+        private void AppendKillBursts()
+        {
+            SimEventBuffer events = World.Events;
+            Palette.EnemyLook look = Colors.Enemies;
+            int now = World.TickCount;
+            int segments = Mathf.Max(8, look.KillRingSegments);
+            float pixel = WorldPerPixel;
+
+            for (int i = 0; i < events.Count; i++)
+            {
+                SimEvent e = events[i];
+                if (e.Kind != SimEventKind.EnemyKilled) continue;
+
+                float age = (now - e.Tick) / (float)look.KillRingTicks;
+                if (age < 0f || age > 1f) continue;
+
+                var centre = new Vector2(e.Position.X, e.Position.Y);
+                float radius = Mathf.Lerp(0.12f, look.KillRingRadius, age);
+                float half = Mathf.Max(look.KillRingPixels * pixel * (1f - age), 0.004f) * 0.5f;
+                Color colour = look.HitFlash;
+                colour.a = 1f - age;
+
+                for (int s = 0; s < segments; s++)
+                {
+                    float a0 = Mathf.PI * 2f * s / segments;
+                    float a1 = Mathf.PI * 2f * (s + 1) / segments;
+                    Vector2 d0 = new Vector2(Mathf.Cos(a0), Mathf.Sin(a0));
+                    Vector2 d1 = new Vector2(Mathf.Cos(a1), Mathf.Sin(a1));
+
+                    AppendQuad(
+                        centre + d0 * (radius - half), centre + d0 * (radius + half),
+                        centre + d1 * (radius + half), centre + d1 * (radius - half), colour);
+                }
+            }
+        }
+
+        /// <summary>The body: the health-shaped polygon unless an override replaces it.</summary>
+        private void AppendEnemyBody(in EnemySnapshot enemy, Vector2 at, Color outline, float outlineWidth)
+        {
+            if (_spike.Override && _spike.Source == VisualSource.Sprite)
+            {
+                DrawSprite(_spike, at, Color.white);
+                return;
+            }
+
+            if (_spike.Override)
+            {
+                AppendPolygon(_spikePoints, at + _spike.Offset, _spike.Fill, _spike.Outline,
+                    OutlineWidthFor(_spike));
+                return;
+            }
+
+            // A body that was just hit goes white-hot for a few ticks, so landing a shot is something
+            // the player sees rather than infers from a shrinking polygon.
+            Color body = IsFlashing(enemy.Id) ? Colors.Enemies.HitFlash : Colors.EnemyColor(enemy.Kind);
+            int sides = Mathf.Clamp(3 + Mathf.RoundToInt(3f * enemy.HealthFraction), 3, 6);
+            AppendPolygon(_bodies[sides - 3], at, body, outline, outlineWidth);
         }
 
         /// <summary>

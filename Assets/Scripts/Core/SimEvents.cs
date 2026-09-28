@@ -1,0 +1,249 @@
+using System;
+
+namespace Facet.Core
+{
+    /// <summary>
+    /// Everything the simulation reports having done. A closed set for the same reason
+    /// <see cref="BehaviorKind"/> is: it is the interface between the simulation and everything that
+    /// wants to *react* to it - a sound, a flash, a log line, a scoreboard - and an interface with a
+    /// dozen known members is worth more than a plugin system nobody needs yet.
+    /// </summary>
+    public enum SimEventKind : byte
+    {
+        /// <summary>A building was placed and paid for. <c>Amount</c> is what it cost.</summary>
+        Built = 0,
+
+        /// <summary>A building was deleted and refunded. <c>Amount</c> is the refund.</summary>
+        Removed = 1,
+
+        /// <summary>A wrong-shape delivery jammed a belt segment. <c>Shape</c> is the shape that
+        /// caused it.</summary>
+        Jammed = 2,
+
+        /// <summary>A jammed segment was cleared. The offending item is destroyed with it.</summary>
+        JamCleared = 3,
+
+        /// <summary>A circle reached the Core and became spendable. <c>Cell</c> is the delivering belt.
+        /// </summary>
+        Banked = 4,
+
+        /// <summary>A turret fired. <c>Shape</c> is the ammunition it spent, <c>Amount</c> the damage.
+        /// </summary>
+        ShotFired = 5,
+
+        /// <summary>A shot landed and did not kill. <c>EnemyId</c> and <c>Position</c> say what was hit.
+        /// </summary>
+        EnemyDamaged = 6,
+
+        /// <summary>A shot landed and killed. The one event a run is won by.</summary>
+        EnemyKilled = 7,
+
+        /// <summary>An enemy hit the Core. <c>Amount</c> is the damage.</summary>
+        CoreDamaged = 8,
+
+        /// <summary>A wave began. <c>Amount</c> is its 1-based number.</summary>
+        WaveStarted = 9,
+
+        /// <summary>A wave was cleared. <c>Amount</c> is its 1-based number.</summary>
+        WaveCleared = 10,
+
+        /// <summary>The last wave was cleared and the Core still stands.</summary>
+        RunWon = 11,
+
+        /// <summary>The Core fell.</summary>
+        RunLost = 12,
+    }
+
+    /// <summary>
+    /// One thing that happened, as a value: no references, no allocation, and enough identity to place
+    /// it in the world (a cell, a position, an enemy, a shape, a number) and in time (<see cref="Tick"/>).
+    ///
+    /// Events are <b>derived</b>: nothing in the simulation reads one back, so emitting them cannot
+    /// change what the simulation does and a run stays exactly as deterministic with the stream as
+    /// without it. That is the property that lets every visual and audible reaction in the game hang
+    /// off this one seam without putting the simulation's correctness on the line.
+    /// </summary>
+    public readonly struct SimEvent
+    {
+        public readonly SimEventKind Kind;
+
+        /// <summary>The tick it happened on, stamped by the buffer from the world's clock.</summary>
+        public readonly int Tick;
+
+        /// <summary>The cell it happened in, for a reader that thinks in tiles (the cursor, a log line).</summary>
+        public readonly Int2 Cell;
+
+        /// <summary>Where it happened, for a reader that thinks in world space (a flash, a shake).</summary>
+        public readonly Vec2 Position;
+
+        /// <summary>The enemy involved, by id, so a view can flash the one that was hit rather than
+        /// every enemy of its kind. 0 when no enemy is involved.</summary>
+        public readonly int EnemyId;
+
+        public readonly EnemyKind Enemy;
+        public readonly ShapeType Shape;
+
+        /// <summary>The event's number: a cost, a refund, a damage, a wave number.</summary>
+        public readonly float Amount;
+
+        internal SimEvent(SimEventKind kind, int tick, Int2 cell, Vec2 position, int enemyId,
+            EnemyKind enemy, ShapeType shape, float amount)
+        {
+            Kind = kind;
+            Tick = tick;
+            Cell = cell;
+            Position = position;
+            EnemyId = enemyId;
+            Enemy = enemy;
+            Shape = shape;
+            Amount = amount;
+        }
+
+        public override string ToString()
+            => Kind + "@" + Tick + " cell=" + Cell + " amount=" + Amount.ToString("0.##");
+    }
+
+    /// <summary>
+    /// The stream of <see cref="SimEvent"/>s, as a fixed ring of value types: emitting one is an array
+    /// store, so a behaviour can report freely and the tick never allocates.
+    ///
+    /// <b>It is a ring, so it always holds the most recent events.</b> A reader therefore needs no
+    /// bookkeeping at all - it reads the window it cares about, by <see cref="SimEvent.Tick"/>, and the
+    /// buffer guarantees the present is in there rather than the distant past. That is what lets two
+    /// readers (a renderer flashing a hit, a HUD reporting the last second) share one stream without
+    /// either of them owning it, and it is why nothing has to clear at a particular moment in the
+    /// frame: a multi-tick frame's events are all still there.
+    ///
+    /// <see cref="Clear"/> is for a reader that wants each event <em>exactly once</em> - the tests do,
+    /// so they can assert on one tick's stream - and for that reason it is an explicit, read-side act
+    /// rather than something <see cref="SimWorld.Tick"/> does behind the reader's back. A stream that
+    /// outgrows the ring drops its oldest events, and <see cref="Dropped"/> counts how many: reported
+    /// rather than swallowed, so a reader can tell "nothing happened" from "I fell behind".
+    ///
+    /// Emitters call the named methods rather than building a <see cref="SimEvent"/> by hand, so what
+    /// each event *means* is written once, where it is emitted.
+    /// </summary>
+    public sealed class SimEventBuffer
+    {
+        /// <summary>Default capacity: room for many ticks' worth of events, since a pitched wave
+        /// produces only a handful per tick.</summary>
+        public const int DefaultCapacity = 256;
+
+        private readonly SimEvent[] _events;
+
+        /// <summary>Valid events, oldest first from <see cref="_start"/>.</summary>
+        private int _count;
+        private int _start;
+
+        /// <summary>The tick being simulated, stamped onto every event pushed. Set by
+        /// <see cref="SimWorld.Tick"/> before that tick's steps run.</summary>
+        public int Tick;
+
+        public SimEventBuffer(int capacity = DefaultCapacity)
+        {
+            _events = new SimEvent[Math.Max(1, capacity)];
+        }
+
+        /// <summary>Events currently held, oldest first.</summary>
+        public int Count => _count;
+
+        /// <summary>How many events were overwritten before a reader saw them, because the stream
+        /// outgrew the ring.</summary>
+        public int Dropped { get; private set; }
+
+        /// <summary>Oldest first, so index 0 is the oldest event still held.</summary>
+        public SimEvent this[int index] => _events[(_start + index) % _events.Length];
+
+        public void Clear()
+        {
+            _count = 0;
+            _start = 0;
+            Dropped = 0;
+        }
+
+        /// <summary>How many of the buffered events are of one kind - the questions a view actually
+        /// asks ("did anything bank, did anything get shot") without walking the buffer itself.</summary>
+        public int CountOf(SimEventKind kind)
+        {
+            int found = 0;
+            for (int i = 0; i < _count; i++)
+                if (this[i].Kind == kind) found++;
+
+            return found;
+        }
+
+        /// <summary>The most recent event of a kind, if there is one. A HUD ticker reads the last of
+        /// each rather than the whole stream.</summary>
+        public bool TryLast(SimEventKind kind, out SimEvent found)
+        {
+            for (int i = _count - 1; i >= 0; i--)
+            {
+                if (this[i].Kind != kind) continue;
+                found = this[i];
+                return true;
+            }
+
+            found = default;
+            return false;
+        }
+
+        // ------------------------------------------------------------------ what the simulation reports
+
+        public void Built(Int2 cell, int cost)
+            => Push(SimEventKind.Built, cell, amount: cost);
+
+        public void Removed(Int2 cell, int refund)
+            => Push(SimEventKind.Removed, cell, amount: refund);
+
+        public void Jammed(Int2 cell, ShapeType item)
+            => Push(SimEventKind.Jammed, cell, shape: item);
+
+        public void JamCleared(Int2 cell)
+            => Push(SimEventKind.JamCleared, cell);
+
+        public void Banked(Int2 cell)
+            => Push(SimEventKind.Banked, cell, amount: 1f, shape: ShapeType.Circle);
+
+        public void ShotFired(Int2 cell, ShapeType ammo, float damage)
+            => Push(SimEventKind.ShotFired, cell, amount: damage, shape: ammo);
+
+        public void EnemyDamaged(int id, EnemyKind kind, Vec2 position, float damage)
+            => Push(SimEventKind.EnemyDamaged, amount: damage, position: position, enemyId: id, enemy: kind);
+
+        public void EnemyKilled(int id, EnemyKind kind, Vec2 position)
+            => Push(SimEventKind.EnemyKilled, position: position, enemyId: id, enemy: kind);
+
+        public void CoreDamaged(float damage)
+            => Push(SimEventKind.CoreDamaged, amount: damage);
+
+        public void WaveStarted(int wave)
+            => Push(SimEventKind.WaveStarted, amount: wave);
+
+        public void WaveCleared(int wave)
+            => Push(SimEventKind.WaveCleared, amount: wave);
+
+        public void RunEnded(bool won)
+            => Push(won ? SimEventKind.RunWon : SimEventKind.RunLost);
+
+        private void Push(SimEventKind kind, Int2 cell = default, float amount = 0f,
+            Vec2 position = default, int enemyId = 0, EnemyKind enemy = default,
+            ShapeType shape = ShapeType.None)
+        {
+            var e = new SimEvent(kind, Tick, cell, position, enemyId, enemy, shape, amount);
+
+            if (_count < _events.Length)
+            {
+                _events[(_start + _count) % _events.Length] = e;
+                _count++;
+                return;
+            }
+
+            // Full: overwrite the oldest, so a reader that never clears still sees the present rather
+            // than a frozen distant past. Dropped counts the cost of that. Telemetry, not state -
+            // dropping is cheaper than growing an array on the hot path.
+            _events[_start] = e;
+            _start = (_start + 1) % _events.Length;
+            Dropped++;
+        }
+    }
+}

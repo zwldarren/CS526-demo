@@ -20,10 +20,13 @@ namespace Facet.Game
     /// </summary>
     public sealed class BuildInput
     {
-        /// <summary>The digits that select a building, in <see cref="BuildCatalog.All"/> order.</summary>
+        /// <summary>The digits that select a building, in <see cref="BuildCatalog.All"/> order. There
+        /// is one more digit than there are kinds; the loop below stops at the table's length, so the
+        /// spare keys are inert until content grows into them.</summary>
         private static readonly Key[] BuildKeys =
         {
             Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5, Key.Digit6,
+            Key.Digit7, Key.Digit8, Key.Digit9,
         };
 
         private bool _pauseToggleRequested;
@@ -47,6 +50,12 @@ namespace Facet.Game
             _pauseToggleRequested = false;
             return value;
         }
+
+        /// <summary>Is N being asked for right now? Read by the driver as "go on" - start the next
+        /// wave while a map is live, carry on to the next map once it is won - and by the world as
+        /// "start the next wave". Non-destructive because both readers act on the same press in
+        /// different states, and only the tick's consumer should clear it.</summary>
+        public bool StartWaveRequested => _startWaveRequested;
 
         /// <summary>Read every device once per frame: held state, latched one-shots, selection, cursor.
         /// <paramref name="pointerOverHud"/> is the HUD's "the mouse is mine right now": while it is
@@ -98,6 +107,18 @@ namespace Facet.Game
         public InputCommand Snapshot()
             => new InputCommand(_buildHeld, _removeHeld, _cursor, _primaryPressed, _primaryReleased,
                 _selected, _rotateSteps, _startWaveRequested, _restartRequested);
+
+        /// <summary>
+        /// The HUD's build bar asking for a selection. It writes the same field a number key writes,
+        /// so the next <see cref="Snapshot"/> carries it in <see cref="InputCommand.Selected"/> and
+        /// the simulation stays the one place the selection is actually applied. The world applies it
+        /// even while paused, so the highlighted tile follows the click immediately.
+        /// </summary>
+        public void RequestSelect(BuildKind kind) => _selected = kind;
+
+        /// <summary>The HUD's rotate buttons asking for quarter turns of the placement ghost, latched
+        /// exactly like the Q/E keys so two clicks between ticks turn the ghost twice.</summary>
+        public void RequestRotate(int steps) => _rotateSteps += steps;
 
         /// <summary>Drop the one-shots, once a tick has actually applied them.</summary>
         public void ConsumeOneShots()

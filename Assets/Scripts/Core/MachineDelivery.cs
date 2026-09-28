@@ -38,7 +38,7 @@ namespace Facet.Core
 
             for (int i = 0; i < Ports.Length; i++)
             {
-                if (!TryReadyAt(belts, cell, Ports[i], out Int2 neighbour, out BeltState state)) continue;
+                if (!TryReadyAt(belts, cell, Ports[i], rejectJammed: false, out Int2 neighbour, out BeltState state)) continue;
                 if (requireShape && state.Item != wanted) continue;
 
                 deliveryCell = neighbour;
@@ -60,7 +60,7 @@ namespace Facet.Core
 
             for (int i = 0; i < Ports.Length; i++)
             {
-                if (!TryReadyAt(belts, cell, Ports[i], out Int2 neighbour, out BeltState state)) continue;
+                if (!TryReadyAt(belts, cell, Ports[i], rejectJammed: false, out Int2 neighbour, out BeltState state)) continue;
                 if (state.Item == ammo) continue;
 
                 deliveryCell = neighbour;
@@ -87,13 +87,25 @@ namespace Facet.Core
         /// machine's rotation cursor and wrapping, then advance that cursor past the outlet used.
         /// Shared by the decomposer and the splitter so both distribute round-robin: the two halves of
         /// one split should leave by different belts when two are available, not queue behind one.
+        ///
+        /// This is the unfiltered form - every wired outlet may take the item.
         /// </summary>
         public static bool TryPushOut(BeltField belts, ref MachineState machine, Int2 cell, ShapeType shape)
+            => TryPushOut(belts, ref machine, cell, shape, DirMask.All);
+
+        /// <summary>
+        /// The same push, narrowed to <paramref name="allowed"/>. A machine that routes by shape
+        /// (the sorter) narrows the set per item instead of re-implementing the search, so "which
+        /// outlet" and "does it have room" stay one rule for every machine that pushes.
+        /// </summary>
+        public static bool TryPushOut(BeltField belts, ref MachineState machine, Int2 cell, ShapeType shape,
+            DirMask allowed)
         {
             for (int k = 0; k < Ports.Length; k++)
             {
                 int port = (machine.Rotation + k) & 3;   // Ports.Length is 4
                 Dir side = Ports[port];
+                if (!allowed.Has(side)) continue;
                 if (!IsOutput(belts, cell, side)) continue;
                 if (!belts.TrySpawnItem(cell + side.Offset(), shape)) continue;
 
@@ -104,14 +116,98 @@ namespace Facet.Core
             return false;
         }
 
+        /// <summary>
+        /// Take the first ready item delivered into <paramref name="cell"/> off its belt, in the same
+        /// fixed scan order every ported machine uses. False means nothing is delivering, which for a
+        /// machine already holding an item is simply backpressure: it waits and lets the belts
+        /// upstream queue.
+        ///
+        /// This is the intake mirror of <see cref="TryPushOut"/>, and the one rule for every machine
+        /// that picks up and holds what it takes - the splitter hub and the sorter, whose tick differed
+        /// only in the comments around an identical scan. Put here beside the push so "an outlet is a
+        /// belt pointing away" and "an intake is a belt pointing in" cannot drift apart.
+        ///
+        /// A jammed belt is skipped: these machines carry what they take to another side, so picking a
+        /// jammed item up would move it past the segment the player is meant to clear and hide the
+        /// mistake. A machine that consumes or fires what it takes asks the other question instead - see
+        /// <see cref="TryReadyAt"/>.
+        /// </summary>
+        public static bool TryTakeInput(BeltField belts, Int2 cell, out ShapeType shape)
+        {
+            shape = ShapeType.None;
+
+            for (int i = 0; i < Ports.Length; i++)
+            {
+                if (!TryReadyAt(belts, cell, Ports[i], rejectJammed: true, out Int2 neighbour, out _)) continue;
+
+                belts.TryTakeItem(neighbour, out shape);
+                return true;
+            }
+
+            return false;
+        }
+
         /// <summary>Is there a belt on the <paramref name="side"/> of <paramref name="cell"/>, pointing
-        /// into it, with an item parked on its exit edge?</summary>
-        private static bool TryReadyAt(BeltField belts, Int2 cell, Dir side, out Int2 neighbour, out BeltState state)
+        /// into it, with an item parked on its exit edge? <paramref name="rejectJammed"/> is the
+        /// difference between the two ways this gets asked: a machine that consumes or fires the item
+        /// it takes ignores the jam flag - taking the item is how a line gets going again - while a
+        /// machine that carries it somewhere else must not pick a jammed item up.</summary>
+        private static bool TryReadyAt(BeltField belts, Int2 cell, Dir side, bool rejectJammed,
+            out Int2 neighbour, out BeltState state)
         {
             neighbour = cell + side.Offset();
             if (!belts.TryGet(neighbour, out state)) return false;
             if (state.Direction != side.Opposite()) return false;   // it must point at the machine
+            if (rejectJammed && state.Jammed) return false;
             return state.Item != ShapeType.None && state.Progress >= 1f;
+        }
+
+        /// <summary>
+        /// The machine's two port sets, computed once here so the simulation and the view read the
+        /// same rule instead of each deciding for itself.
+        ///
+        /// <paramref name="inMask"/>: every side a belt points at the machine from - the sides it can
+        /// be fed on, which is what makes a stub pointing inward read as an input.
+        ///
+        /// <paramref name="outMask"/>: every side a belt points away on, when the machine's kind even
+        /// has an output there. A drill's facing <em>is</em> its output, so it gets exactly one; a
+        /// decomposer's, a cutter's, a splitter's and a sorter's outlets are read off the belts around
+        /// them, so they get every side wired that way; a pipe (which lands two cells ahead) and a
+        /// turret (which never pushes) get none.
+        ///
+        /// Which of those a machine is comes from its definition's <see cref="BehaviorKind"/>, so a new
+        /// machine of an existing kind docks correctly without being added to a list here.
+        /// </summary>
+        public static void PortMasks(BeltField belts, ContentDatabase content, Int2 cell,
+            in MachineState machine, out DirMask inMask, out DirMask outMask)
+        {
+            inMask = DirMask.None;
+            outMask = DirMask.None;
+
+            BehaviorKind behavior = content.Machine(machine.Build).Behavior;
+
+            for (int i = 0; i < Ports.Length; i++)
+            {
+                Dir side = Ports[i];
+                if (!belts.TryGet(cell + side.Offset(), out BeltState belt)) continue;
+
+                if (belt.Direction == side.Opposite()) inMask = inMask.With(side);
+                else if (belt.Direction == side && HasOutputOn(behavior, machine.Direction, side))
+                    outMask = outMask.With(side);
+            }
+        }
+
+        /// <summary>Does a machine with this behaviour push items out on <paramref name="side"/>?</summary>
+        private static bool HasOutputOn(BehaviorKind behavior, Dir facing, Dir side)
+        {
+            switch (behavior)
+            {
+                case BehaviorKind.Drill: return facing == side;
+                case BehaviorKind.Converter:
+                case BehaviorKind.Splitter:
+                case BehaviorKind.Sorter: return true;
+                default: return false;
+            }
         }
     }
 }

@@ -18,7 +18,9 @@ namespace Facet.Game
     /// has to synthesize a frame of its own.
     ///
     /// One <see cref="MeshView"/> is one GameObject with one mesh, which is the shape the PlayMode
-    /// tests pin: a view's whole visible output is a single mesh whose vertex count they can read.
+    /// tests pin: the default (procedural) output is a single mesh whose vertex count they can read.
+    /// A content that opts into a Sprite override adds a small pooled SpriteRenderer behind that
+    /// mesh, so the default look still touches no GameObject beyond the view's own mesh.
     /// </summary>
     public abstract class MeshView : MonoBehaviour
     {
@@ -38,6 +40,16 @@ namespace Facet.Game
         private Palette _palette;
         private bool _dirty;
         private float _builtWorldPerPixel = -1f;
+
+        /// <summary>Sprites this view draws, created lazily and reused across frames.</summary>
+        private readonly List<SpriteRenderer> _sprites = new List<SpriteRenderer>();
+        private Transform _spriteRoot;
+        private int _spritesUsed;
+
+        /// <summary>Sprites sit this far behind the view's mesh, so the mesh's functional overlays
+        /// (a turret's barrel, a machine's port stubs) draw on top of an overridden body. Small
+        /// enough never to be seen as a parallax offset at any zoom.</summary>
+        private const float SpriteDepthOffset = 0.001f;
 
         /// <summary>The simulation this view draws. The view keeps its own gather and reads
         /// whatever it needs from here; the mesh lifecycle does not depend on it.</summary>
@@ -95,8 +107,31 @@ namespace Facet.Game
             gameObject.transform.position = new Vector3(0f, 0f, layer.Z);
         }
 
-        /// <summary>One-time setup a view needs beyond the mesh. The world and palette are ready.</summary>
+        /// <summary>One-time setup a view needs beyond the mesh. The world and palette are ready.
+        /// Called once per view; a map change goes through <see cref="Rebind"/> instead.</summary>
         protected virtual void OnInitialized() { }
+
+        /// <summary>
+        /// Point this view at a different simulation - a different map - without rebuilding any of the
+        /// mesh machinery: the mesh, the material and the pooled sprites stay, and only what they are
+        /// filled from changes. The next frame rebuilds from the new world.
+        ///
+        /// A view that cached anything sized or positioned by the old map drops it in
+        /// <see cref="OnWorldRebound"/>: the grid's own tile grid, the wave-entry markers, the belt
+        /// revision it last drew. Those are exactly the caches that would otherwise keep drawing the
+        /// previous map, which is why the hook exists rather than <see cref="Initialize"/> being called
+        /// a second time.
+        /// </summary>
+        public void Rebind(SimWorld world)
+        {
+            World = world ?? throw new System.ArgumentNullException(nameof(world));
+            OnWorldRebound();
+            _dirty = true;
+        }
+
+        /// <summary>Drop everything cached from the previous world. Called by <see cref="Rebind"/>,
+        /// so a view with no such cache needs no override.</summary>
+        protected virtual void OnWorldRebound() { }
 
         /// <summary>Called once per frame before the gate. A view compares its own watched value and
         /// calls <see cref="MarkDirty"/> when it changed. The zoom reason is the gate's, not the view's.</summary>
@@ -107,6 +142,10 @@ namespace Facet.Game
 
         /// <summary>Ask for a rebuild of the mesh. Every-frame views call this from <see cref="Observe"/>.</summary>
         protected void MarkDirty() => _dirty = true;
+
+        /// <summary>World-space centre of a tile. Tile coordinates are world coordinates, so a cell
+        /// spans [x, x+1) and its centre is half a tile in from its origin.</summary>
+        protected static Vector2 CellCentre(Int2 cell) => new Vector2(cell.X + 0.5f, cell.Y + 0.5f);
 
         /// <summary>One CCW quad into the shared buffers.</summary>
         protected void AppendQuad(Vector2 a, Vector2 b, Vector2 c, Vector2 d, Color color)
@@ -172,6 +211,103 @@ namespace Facet.Game
             _triangles.Clear();
             AppendFrame(in frame);
             ProcMesh.Finish(_vertices, _colors, _triangles, _mesh.name, _mesh);
+        }
+
+        /// <summary>Outline width for a resolved style, in world units, at the current zoom.</summary>
+        protected float OutlineWidthFor(VisualStyle style)
+            => style != null ? style.OutlinePixels * WorldPerPixel : OutlineWidth;
+
+        /// <summary>Reset the sprite pool cursor before drawing this frame's overrides.</summary>
+        protected void BeginSprites() => _spritesUsed = 0;
+
+        /// <summary>
+        /// Draw one sprite centred on a world position, scaled so its width and height are
+        /// 2 * <paramref name="halfExtent"/> tiles (<paramref name="halfExtent"/> 0 keeps the
+        /// sprite's native size), then offset and rotated. A centred sprite pivot is assumed - the
+        /// Unity default. Sprites are pooled and live just behind the view's mesh.
+        /// </summary>
+        protected void DrawSprite(Sprite sprite, Vector2 centre, float halfExtent,
+            float rotation, Vector2 offset, Color tint)
+        {
+            if (sprite == null) return;
+
+            SpriteRenderer renderer = RentSprite();
+            renderer.sprite = sprite;
+            renderer.color = tint;
+
+            Vector2 native = sprite.bounds.size;
+            float scaleX = halfExtent > 0f && native.x > 0f ? (halfExtent * 2f) / native.x : 1f;
+            float scaleY = halfExtent > 0f && native.y > 0f ? (halfExtent * 2f) / native.y : 1f;
+
+            renderer.transform.localScale = new Vector3(scaleX, scaleY, 1f);
+            renderer.transform.localPosition = new Vector3(centre.x + offset.x, centre.y + offset.y, SpriteDepthOffset);
+            renderer.transform.localRotation = Quaternion.Euler(0f, 0f, rotation);
+            renderer.gameObject.SetActive(true);
+            _spritesUsed++;
+        }
+
+        /// <summary>Draw a style's authored Sprite at a world position with a tint: the short form of
+        /// the full call, used wherever a view replaces a body with an image.</summary>
+        protected void DrawSprite(VisualStyle style, Vector2 centre, Color tint)
+            => DrawSprite(style.Sprite, centre, style.Size, style.Rotation, style.Offset, tint);
+
+        /// <summary>Hide any pooled sprite this frame did not use, so a removed entity stops drawing.
+        /// Call after the frame's sprites were drawn.</summary>
+        protected void EndSprites()
+        {
+            for (int i = _spritesUsed; i < _sprites.Count; i++)
+            {
+                if (_sprites[i].gameObject.activeSelf) _sprites[i].gameObject.SetActive(false);
+            }
+        }
+
+        /// <summary>
+        /// Draw one shape icon from a view's icon set: the authored Sprite when the style names one,
+        /// otherwise the procedural silhouette with its own outline. A <paramref name="tint"/>
+        /// recolours either form - how a silenced turret's ammo goes grey - and null keeps the style's
+        /// fill. The one place every view that draws a shape as an icon goes through, so a re-skinned
+        /// shape looks the same on a belt, in the ground, on a machine and on an enemy.
+        /// </summary>
+        protected void AppendIcon(ShapeIconSet icons, ShapeType shape, Vector2 centre, Color? tint)
+        {
+            if (shape == ShapeType.None) return;
+
+            VisualStyle style = icons.Style(shape);
+            if (style == null) return;
+
+            if (style.Source == VisualSource.Sprite)
+            {
+                DrawSprite(style.Sprite, centre, style.Size, style.Rotation, style.Offset, tint ?? Color.white);
+                return;
+            }
+
+            Vector2[] points = icons.Points(shape);
+            if (points == null) return;
+
+            AppendPolygon(points, centre + style.Offset, tint ?? style.Fill, style.Outline, OutlineWidthFor(style));
+        }
+
+        private SpriteRenderer RentSprite()
+        {
+            while (_spritesUsed >= _sprites.Count)
+            {
+                if (_spriteRoot == null)
+                {
+                    var root = new GameObject("Sprites");
+                    root.transform.SetParent(transform, false);
+                    _spriteRoot = root.transform;
+                }
+
+                var go = new GameObject("Sprite");
+                go.transform.SetParent(_spriteRoot, false);
+
+                var renderer = go.AddComponent<SpriteRenderer>();
+                renderer.sortingOrder = Layer.SortingOrder;
+                go.SetActive(false);
+                _sprites.Add(renderer);
+            }
+
+            return _sprites[_spritesUsed];
         }
 
         private bool ZoomMoved(float worldPerPixel)

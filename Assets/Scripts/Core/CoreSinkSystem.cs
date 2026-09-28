@@ -13,15 +13,20 @@ namespace Facet.Core
         private readonly BeltField _belts;
         private readonly EconomyState _economy;
 
+        /// <summary>The stream deliveries are reported on, so a view can flash the Core the tick money
+        /// actually lands.</summary>
+        private readonly SimEventBuffer _events;
+
         /// <summary>Banked this many circles in the last step. Telemetry: a view can flash the Core,
         /// a test can read the rate without polling the stockpile.</summary>
         public int BankedLastStep { get; private set; }
 
-        public CoreSinkSystem(TileGrid grid, BeltField belts, EconomyState economy)
+        public CoreSinkSystem(TileGrid grid, BeltField belts, EconomyState economy, SimEventBuffer events)
         {
             _grid = grid;
             _belts = belts;
             _economy = economy;
+            _events = events;
         }
 
         /// <summary>Empty every belt delivering into the Core's footprint. Runs once per tick.</summary>
@@ -56,7 +61,11 @@ namespace Facet.Core
             {
                 _economy.Bank(1);
                 BankedLastStep++;
+                _events.Banked(cell);
             }
+
+            // Anything else is the overflow drain: a stray half-circle arriving at the Core is
+            // destroyed, which is a fact visible on the belt rather than an event worth reporting.
         }
     }
 }

@@ -54,6 +54,12 @@ namespace Facet.Core
         private EnemyState[] _enemies;
         private int _count;
 
+        private readonly ContentDatabase _content;
+
+        /// <summary>The stream enemy damage, kills and Core hits are reported on. Derived telemetry:
+        /// nothing reads it back, so it cannot affect a run's outcome.</summary>
+        private readonly SimEventBuffer _events;
+
         /// <summary>Id -> slot. Only ever used for lookup, never enumerated, so it cannot leak order
         /// into the simulation the way an enumerated dictionary would.</summary>
         private readonly Dictionary<int, int> _slotById = new Dictionary<int, int>();
@@ -64,8 +70,10 @@ namespace Facet.Core
         /// so this is the wave's remaining work, not a slot count.</summary>
         public int AliveCount => _count;
 
-        public EnemyField(int capacity = 64)
+        public EnemyField(ContentDatabase content, SimEventBuffer events, int capacity = 64)
         {
+            _content = content ?? throw new ArgumentNullException(nameof(content));
+            _events = events ?? throw new ArgumentNullException(nameof(events));
             _enemies = new EnemyState[Math.Max(8, capacity)];
         }
 
@@ -82,7 +90,7 @@ namespace Facet.Core
         {
             if (_count == _enemies.Length) Array.Resize(ref _enemies, _enemies.Length * 2);
 
-            EnemySpec spec = Balance.Enemy(kind);
+            EnemyDef spec = _content.Enemy(kind);
             int id = _nextId++;
 
             _enemies[_count] = new EnemyState
@@ -114,7 +122,7 @@ namespace Facet.Core
                 ref EnemyState e = ref _enemies[i];
                 e.PreviousPosition = e.Position;
 
-                EnemySpec spec = Balance.Enemy(e.Kind);
+                EnemyDef spec = _content.Enemy(e.Kind);
                 Vec2 toCore = centre - e.Position;
                 float distance = toCore.Magnitude;
 
@@ -136,6 +144,7 @@ namespace Facet.Core
                 {
                     core.Hp = MathF.Max(0f, core.Hp - spec.CoreDamage);
                     e.AttackCooldown += spec.AttackInterval;
+                    _events.CoreDamaged(spec.CoreDamage);
                 }
             }
         }
@@ -151,7 +160,21 @@ namespace Facet.Core
 
             _enemies[slot].Hp -= baseDamage;
 
-            if (_enemies[slot].Hp <= 0f) RemoveAt(slot);
+            // Read what the report needs *before* RemoveAt, which reorders the array it would be read
+            // from: the kind and the position are gone the moment the enemy is.
+            bool killed = _enemies[slot].Hp <= 0f;
+            EnemyKind kind = _enemies[slot].Kind;
+            Vec2 position = _enemies[slot].Position;
+
+            if (killed)
+            {
+                _events.EnemyKilled(id, kind, position);
+                RemoveAt(slot);
+            }
+            else
+            {
+                _events.EnemyDamaged(id, kind, position, baseDamage);
+            }
         }
 
         /// <summary>One enemy by slot, for a reader that wants a single slot. Returns a copy on

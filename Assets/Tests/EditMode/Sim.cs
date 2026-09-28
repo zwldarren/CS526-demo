@@ -120,9 +120,10 @@ namespace Facet.Tests
         /// Drag a route and then prove it landed: every cell of the Manhattan walk must be a belt
         /// facing the next cell of the walk. The walk takes the drag's dominant axis first, exactly as
         /// the drag itself does, so a route up the map is proved cell by cell up the map. A route that
-        /// crosses a shape patch or the Core is silently skipped by the drag (and the direction link is
-        /// dropped across the gap), which would leave a line that looks fine and starves - so the tests
-        /// refuse to accept one.
+        /// crosses the Core is silently skipped by the drag (and the direction link is dropped across the
+        /// gap), which would leave a line that looks fine and starves - so the tests refuse to accept one.
+        /// A shape patch is *not* skipped: transport crosses ore, so a route over a vein is one unbroken
+        /// run.
         /// </summary>
         public static void Route(SimWorld world, Int2 from, Int2 to)
         {

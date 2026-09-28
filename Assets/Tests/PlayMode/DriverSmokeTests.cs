@@ -65,6 +65,23 @@ namespace Facet.PlayTests
             Assert.AreEqual(Maps.All[0].Height, driver.World.TileGrid.Height);
             Assert.IsNotNull(Camera.main, "with a MainCamera for the views to sit under");
 
+            // The committed content asset is what the shipped scene boots with, so it has to agree with
+            // the code's own table to the value - otherwise "the shipped game" would depend on which of
+            // the two you happened to read.
+            Assert.IsNotNull(driver.Content, "and a content table");
+            foreach (BuildKind kind in driver.Content.BuildKinds)
+            {
+                Assert.AreEqual(ContentDatabase.Default.Machine(kind).Cost, driver.Content.Machine(kind).Cost,
+                    "the committed content asset disagrees with the shipped cost for " + kind);
+                Assert.AreEqual(ContentDatabase.Default.Machine(kind).Behavior, driver.Content.Machine(kind).Behavior,
+                    "the committed content asset disagrees with the shipped behaviour for " + kind);
+            }
+
+            Assert.AreEqual(ContentDatabase.Default.Turret(BuildKind.Cannon).Damage,
+                driver.Content.Turret(BuildKind.Cannon).Damage, 1e-4f, "shipped cannon damage");
+            Assert.AreEqual(ContentDatabase.Default.Enemy(EnemyKind.Spike).Hp,
+                driver.Content.Enemy(EnemyKind.Spike).Hp, 1e-4f, "shipped spike hp");
+
             int ticks = driver.World.TickCount;
             yield return new WaitForSeconds(0.3f);
             Assert.Greater(driver.World.TickCount, ticks, "and the clock runs in the shipped scene too");
@@ -131,6 +148,90 @@ namespace Facet.PlayTests
             Assert.AreEqual(0, Vertices("Belts"), "a restarted run has no belts to draw");
             Assert.AreEqual(GameStatus.Playing, world.Status);
         }
+
+        /// <summary>
+        /// The event stream, seen from the view: a kill has to leave something on the screen. The burst
+        /// is drawn where the enemy died and fades over a few ticks, so the honest check is that the
+        /// Enemies view carries more geometry right after the kill than it does once the burst has
+        /// expired - and that it *rebuilds* without it, or the ring would stay on screen forever.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator AKill_LeavesAVisibleBurst_ThatThenFades()
+        {
+            yield return null;
+
+            var driver = _driverObject.GetComponent<SimulationDriver>();
+            SimWorld world = driver.World;
+
+            var belt = new Int2(20, 10);
+            var turret = new Int2(21, 10);
+            Assert.IsTrue(world.TryPlaceBelt(belt, Dir.East));
+            Assert.IsTrue(world.TryPlace(BuildKind.Cannon, turret, Dir.East));
+            Assert.IsTrue(world.TrySpawnItem(belt, ShapeType.HalfCircle));
+            Assert.Greater(world.Enemies.Spawn(EnemyKind.Spike, new Vec2(24f, 10.5f)), 0);
+
+            // Ammo arrives, the shots land, the spike dies (6 hp against 3 damage: two shots). Damage
+            // and the kill both go on the stream. The belt holds one item at a time, so the feed keeps
+            // refilling it while the turret works.
+            for (int i = 0; i < 30 * 6 && world.Enemies.AliveCount > 0; i++)
+            {
+                if (!world.Belts.HasItemAt(belt)) world.TrySpawnItem(belt, ShapeType.HalfCircle);
+                world.Tick(InputCommand.None);
+            }
+
+            Assert.AreEqual(0, world.Enemies.AliveCount, "the cannon killed the spike");
+            Assert.Greater(world.Events.CountOf(SimEventKind.EnemyKilled), 0, "and the stream says so");
+
+            yield return null;
+            int bursting = Vertices("Enemies");
+
+            yield return new WaitForSeconds(1f);
+            int faded = Vertices("Enemies");
+
+            Assert.Greater(bursting, faded, "the kill burst is gone a second later - it is not permanent");
+        }
+
+        /// <summary>
+        /// A campaign, without reloading the scene: the driver swaps the world for the next map and every
+        /// view follows it. The two caches a map change breaks are both visible from outside - the ground,
+        /// whose size comes from the tile grid, and the wave-entry markers, whose count comes from the
+        /// map's entry points (a stale one throws, because the marker loop indexes its flags by the map's
+        /// count).
+        /// </summary>
+        [UnityTest]
+        public IEnumerator LoadingTheNextMap_SwapsTheWorld_UnderTheSameViews()
+        {
+            yield return null;
+
+            var driver = _driverObject.GetComponent<SimulationDriver>();
+            Assert.AreEqual(Maps.All[0].Name, driver.World.Map.Name, "the driver opens on the first map");
+            Assert.AreEqual(0, driver.Campaign.MapIndex, "the driver opens on the first map");
+
+            yield return null;
+            Assert.AreEqual(GridVertices(Maps.All[0]), Vertices("Grid"), "the ground is map 1's");
+
+            driver.Campaign.EnterNext();
+            driver.LoadMap();
+            yield return null;
+            yield return null;
+
+            Assert.AreEqual(Maps.All[1].Name, driver.World.Map.Name, "the world is the next map now");
+            Assert.AreEqual(Maps.All[1].StartCircles, driver.World.Economy.Circles, "with the map's own budget");
+            Assert.AreEqual(0, driver.World.TickCount, "and as a fresh run");
+            Assert.AreEqual(GameStatus.Playing, driver.World.Status);
+
+            Assert.AreEqual(GridVertices(Maps.All[1]), Vertices("Grid"),
+                "the ground was rebound to the new map's tile grid");
+            Assert.Greater(Vertices("Enemies"), 0, "and the new map's entry points are drawn");
+
+            int ticks = driver.World.TickCount;
+            yield return new WaitForSeconds(0.3f);
+            Assert.Greater(driver.World.TickCount, ticks, "and the clock runs on the new map too");
+        }
+
+        /// <summary>The grid view's vertex count for a map: one ground quad plus a line quad per grid
+        /// line, so it is a function of the map's size and of nothing else.</summary>
+        private static int GridVertices(MapDefinition map) => 4 * (map.Width + map.Height + 3);
 
         private int Vertices(string viewName)
         {

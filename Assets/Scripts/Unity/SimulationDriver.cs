@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Facet.Core;
 using UnityEngine;
 
@@ -20,6 +21,16 @@ namespace Facet.Game
         [Tooltip("Colours and screen-space thicknesses. Create one with Assets > Create > FACET > Palette.")]
         [SerializeField] private Palette palette;
 
+        [Header("Content")]
+        [Tooltip("Costs, turret/enemy stats and recipes. Create one with Assets > Create > FACET > Content " +
+            "Database. Empty uses the shipped table (ContentDatabase.Default) unchanged.")]
+        [SerializeField] private ContentDatabaseAsset content = null;
+
+        [Header("Progress")]
+        [Tooltip("Which map of Maps.All to start on. The rest of the campaign follows it: clear a map, " +
+            "press N, and the next one is built without reloading the scene.")]
+        [SerializeField] private int startMapIndex = 0;
+
         [Header("Views")]
         [Tooltip("Build the terrain / machine / belt / item / enemy / shot / core / cursor / HUD views at runtime.")]
         [SerializeField] private bool autoCreateViews = true;
@@ -27,8 +38,18 @@ namespace Facet.Game
         /// <summary>Hard cap on catch-up ticks per frame, so a long hitch cannot spiral.</summary>
         private const int MaxTicksPerFrame = 5;
 
+        /// <summary>The simulation being played - one run, replaced when the campaign moves on.</summary>
         public SimWorld World { get; private set; }
+
         public Palette Colors => palette;
+
+        /// <summary>Where the player is in the campaign. It outlives every world it builds, which is
+        /// the whole reason it is not a field on <see cref="SimWorld"/>.</summary>
+        public CampaignState Campaign { get; private set; }
+
+        /// <summary>The content table this run was built with, whether it came from the asset or the
+        /// shipped defaults. Read by the HUD so what it prints is the same table the tick runs on.</summary>
+        public ContentDatabase Content { get; private set; }
 
         /// <summary>How far the renderer is between the previous and the current tick, 0..1.</summary>
         public float Alpha { get; private set; }
@@ -47,6 +68,13 @@ namespace Facet.Game
         private BuildInput _input;
         private Camera _camera;
         private float _accumulator;
+
+        /// <summary>Every mesh view, so a map change can point them all at the new world. Gathered as
+        /// they are built rather than looked up by name, so a view added later cannot be forgotten.</summary>
+        private readonly List<MeshView> _views = new List<MeshView>();
+
+        /// <summary>The camera rig, whose pan bounds are the map's size and so have to follow it.</summary>
+        private CameraRig _rig;
 
         /// <summary>The HUD, for its panels' claim on the mouse. Null until the views are built (and
         /// for a driver that never built any).</summary>
@@ -71,14 +99,11 @@ namespace Facet.Game
                 palette.hideFlags = HideFlags.DontSave;
             }
 
-            // The first map in the progression. Multi-map flow (advance on clear) is a driver-level
-            // concern; with one map shipped, the run simply restarts here.
-            MapDefinition map = Maps.All[0];
-            World = new SimWorld(map, new SimConfig
-            {
-                BeltSpeed = beltSpeedTilesPerSecond,
-                CoreMaxHp = coreMaxHp,
-            });
+            // The map the campaign opens on, and the content every map of it will be played with: the
+            // content table is converted once here, so a map change costs one SimWorld.
+            Campaign = new CampaignState(Maps.All.Length, startMapIndex);
+            Content = content != null ? content.ToCore() : ContentDatabase.Default;
+            World = NewWorld(Maps.All[Campaign.MapIndex]);
 
             _input = new BuildInput();
             CursorCell = new Int2(-1, -1);
@@ -121,6 +146,18 @@ namespace Facet.Game
             // The HUD has first claim on the mouse: while the pointer is over a panel the buttons do
             // not reach the world, so pressing the start-wave button cannot also drop a belt under it.
             _input.Sample(_camera, World, _hud != null && _hud.PointerOverHud);
+
+            // N means "go on" in both states a run can be in: start the next wave while a map is still
+            // being fought, and carry on to the next map once it is won. The world drops a start-wave
+            // request that arrives after the run ended, so this is the only reader that acts on it
+            // there - and the one-shot is consumed here either way, so the new map does not open by
+            // starting its own first wave, which is the player's call on every map.
+            if (World.Status == GameStatus.Won && _input.StartWaveRequested)
+            {
+                _input.ConsumeOneShots();
+                if (Campaign.EnterNext()) LoadMap();
+            }
+
             InputCommand cmd = _input.Snapshot();
             CursorCell = cmd.CursorCell;
 
@@ -140,6 +177,11 @@ namespace Facet.Game
             // Drop the leftover backlog rather than trying to catch up forever.
             if (ticks >= MaxTicksPerFrame) _accumulator = 0f;
 
+            // Recorded as it happens rather than on a keypress, so the campaign's own count is right
+            // whatever got the player here. Idempotent, so polling every frame is the honest way to
+            // read an edge the world does not report.
+            if (World.Status == GameStatus.Won) Campaign.MarkCleared();
+
             Alpha = World.Paused || World.Status != GameStatus.Playing
                 ? 1f
                 : Mathf.Clamp01(_accumulator / SimConfig.TickDt);
@@ -156,41 +198,60 @@ namespace Facet.Game
                 : 0.02f;
         }
 
+        /// <summary>
+        /// Swap in the map the campaign is now on, without reloading the scene.
+        ///
+        /// The world is <em>replaced</em> rather than reset: a world is one run, its fields are sized by
+        /// its map, and its map is fixed for its lifetime - so a new map is a new world, built from its
+        /// own data with the same content table. The views take a rebind rather than a rebuild, because
+        /// their meshes, material and pooled sprites are the same objects either way.
+        /// </summary>
+        public void LoadMap()
+        {
+            World = NewWorld(Maps.All[Campaign.MapIndex]);
+
+            // The frame the views are about to draw has to describe the new world: no leftover backlog
+            // of ticks from the old one, and no cursor parked on a tile that may not exist.
+            _accumulator = 0f;
+            Alpha = 1f;
+            CursorCell = new Int2(-1, -1);
+            Frames.Frame = new ViewFrame(1f, WorldPerPixel, CursorCell);
+
+            for (int i = 0; i < _views.Count; i++) _views[i].Rebind(World);
+            if (_rig != null) _rig.Initialize(World.TileGrid);
+            if (_hud != null) _hud.Initialize(World, palette, Campaign, _input.RequestSelect, _input.RequestRotate);
+
+            Debug.Log("FACET: loaded map " + (Campaign.MapIndex + 1) + " of " + Campaign.MapCount +
+                " - " + World.Map.Name, this);
+        }
+
+        private SimWorld NewWorld(MapDefinition map)
+        {
+            return new SimWorld(map, new SimConfig
+            {
+                BeltSpeed = beltSpeedTilesPerSecond,
+                CoreMaxHp = coreMaxHp,
+            }, Content);
+        }
+
         private void BuildViews()
         {
-            GridView = AddView<GridRenderer>("Grid");
-            GridView.Initialize(World, Frames, palette);
-
-            ShapePatchRenderer patches = AddView<ShapePatchRenderer>("Patches");
-            patches.Initialize(World, Frames, palette);
-
-            BeltRenderer belts = AddView<BeltRenderer>("Belts");
-            belts.Initialize(World, Frames, palette);
-
-            CoreView core = AddView<CoreView>("Core");
-            core.Initialize(World, Frames, palette);
-
-            MachineRenderer machines = AddView<MachineRenderer>("Machines");
-            machines.Initialize(World, Frames, palette);
-
-            ItemRenderer items = AddView<ItemRenderer>("Items");
-            items.Initialize(World, Frames, palette);
-
-            EnemyRenderer enemies = AddView<EnemyRenderer>("Enemies");
-            enemies.Initialize(World, Frames, palette);
-
-            ProjectileRenderer shots = AddView<ProjectileRenderer>("Shots");
-            shots.Initialize(World, Frames, palette);
-
-            CursorView cursor = AddView<CursorView>("Cursor");
-            cursor.Initialize(World, Frames, palette);
+            GridView = AddMeshView<GridRenderer>("Grid");
+            AddMeshView<ShapePatchRenderer>("Patches");
+            AddMeshView<BeltRenderer>("Belts");
+            AddMeshView<CoreView>("Core");
+            AddMeshView<MachineRenderer>("Machines");
+            AddMeshView<ItemRenderer>("Items");
+            AddMeshView<EnemyRenderer>("Enemies");
+            AddMeshView<ProjectileRenderer>("Shots");
+            AddMeshView<CursorView>("Cursor");
 
             _hud = AddView<HudView>("Hud");
-            _hud.Initialize(World, palette);
+            _hud.Initialize(World, palette, Campaign, _input.RequestSelect, _input.RequestRotate);
 
-            CameraRig rig = _camera.GetComponent<CameraRig>();
-            if (rig == null) rig = _camera.gameObject.AddComponent<CameraRig>();
-            rig.Initialize(World.TileGrid);
+            _rig = _camera.GetComponent<CameraRig>();
+            if (_rig == null) _rig = _camera.gameObject.AddComponent<CameraRig>();
+            _rig.Initialize(World.TileGrid);
         }
 
         private T AddView<T>(string viewName) where T : Component
@@ -200,13 +261,24 @@ namespace Facet.Game
             return go.AddComponent<T>();
         }
 
+        /// <summary>Build a view and point it at the world, remembering it for the next map change -
+        /// which is what <see cref="LoadMap"/> needs, and why views are not looked up by name.</summary>
+        private T AddMeshView<T>(string viewName) where T : MeshView
+        {
+            T view = AddView<T>(viewName);
+            view.Initialize(World, Frames, palette);
+            _views.Add(view);
+            return view;
+        }
+
         private void OnDrawGizmosSelected()
         {
+            int index = Application.isPlaying ? Campaign.MapIndex : startMapIndex;
+            MapDefinition map = Maps.All[Mathf.Clamp(index, 0, Maps.All.Length - 1)];
+
             Gizmos.color = new Color(1f, 1f, 1f, 0.25f);
-            float width = Maps.All[0].Width;
-            float height = Maps.All[0].Height;
-            Gizmos.DrawWireCube(new Vector3(width * 0.5f, height * 0.5f, 0f),
-                new Vector3(width, height, 0f));
+            Gizmos.DrawWireCube(new Vector3(map.Width * 0.5f, map.Height * 0.5f, 0f),
+                new Vector3(map.Width, map.Height, 0f));
         }
     }
 }

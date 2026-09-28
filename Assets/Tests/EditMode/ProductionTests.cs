@@ -43,8 +43,7 @@ namespace Facet.Tests
             world.Patches.Set(patch, ShapeType.Circle);
 
             Assert.IsFalse(world.TryPlace(BuildKind.Drill, bare, Dir.East), "a drill needs something to mine");
-            Assert.IsFalse(world.TryPlace(BuildKind.Belt, patch, Dir.East), "a patch is not paveable");
-            Assert.IsFalse(world.TryPlace(BuildKind.Decomposer, patch, Dir.East), "nor is it a machine site");
+            Assert.IsFalse(world.TryPlace(BuildKind.Decomposer, patch, Dir.East), "a patch is not a machine site");
             Assert.IsFalse(world.TryPlace(BuildKind.Cannon, patch, Dir.East));
 
             Assert.IsTrue(world.TryPlace(BuildKind.Drill, patch, Dir.East));
@@ -54,6 +53,83 @@ namespace Facet.Tests
             Assert.AreEqual(TileKind.ShapePatch, world.TileGrid.Get(patch), "the patch is still in the ground");
             Assert.IsTrue(world.Patches.Has(patch));
             Assert.IsTrue(world.TryPlace(BuildKind.Drill, patch, Dir.East), "so it can be drilled again");
+        }
+
+        [Test]
+        public void Drill_MinesTheInteriorOfAWidePatch_ByThreadingABeltOverTheVein()
+        {
+            // The reason transport may cross ore, as a test. A drill pushes onto the tile beside it, so
+            // inside a 3x3 vein every neighbour of the middle cell is ore: the centre took a drill and
+            // then mined nothing, forever, with nothing on screen to say why. Nine cells of ore, eight
+            // of them usable.
+            //
+            // A belt laid across the vein is what makes the middle one work, and the cost is the drill
+            // that would have stood on the belt's own cell. That trade is the rule, so both halves of it
+            // are asserted here: the centre cell mines, and every cell of the vein is still ore.
+            SimWorld world = Sim.NewWorld(20, 12);
+
+            for (int y = 0; y < 3; y++)
+                for (int x = 0; x < 3; x++)
+                    world.Patches.Set(new Int2(4 + x, 4 + y), ShapeType.Circle);
+
+            var centre = new Int2(5, 5);
+            var overOre = new Int2(5, 6);
+
+            Assert.IsTrue(world.CanPlace(BuildKind.Drill, centre), "the middle of a vein takes a drill");
+            Assert.IsTrue(world.CanPlaceBelt(overOre), "and the ore beside it takes a belt");
+
+            Sim.Place(world, BuildKind.Drill, centre, Dir.North);
+            Sim.LayRun(world, overOre, Dir.North, 1);            // one belt over the vein, then off it
+            Sim.LayRun(world, new Int2(5, 7), Dir.West, 3);      // (5,7) (4,7) (3,7), west and away
+
+            // The trade, one line each way: the ore cell the belt crosses can no longer take the drill
+            // that would have mined it, and the drill's own cell can no longer take a belt.
+            Assert.IsFalse(world.CanPlace(BuildKind.Drill, overOre), "one cell cannot hold both");
+            Assert.IsFalse(world.CanPlaceBelt(centre), "the drill is standing there");
+
+            Sim.Tick(world, 90);
+
+            Assert.Greater(Sim.ItemCount(world), 0, "the middle of the vein is mined after all");
+
+            for (int y = 0; y < 3; y++)
+                for (int x = 0; x < 3; x++)
+                    Assert.AreEqual(ShapeType.Circle, world.Patches.ShapeAt(new Int2(4 + x, 4 + y)),
+                        "the belt did not eat the ore it crossed");
+        }
+
+        [Test]
+        public void EveryBuilding_GivesTheGroundBack_WhenRemoved()
+        {
+            // The invariant the belt-on-ore rule leans on, stated once for the whole table instead of
+            // for the two kinds that happen to stand on a patch today. Removing a building must clear the
+            // building and not the ground: ore is the map's data, and no player action may erase it.
+            //
+            // A patch is the only terrain a building can stand on, so it is also the only terrain a
+            // removal can silently destroy - which is exactly why this loops over BuildCatalog rather
+            // than naming kinds.
+            foreach (BuildKind kind in BuildCatalog.All)
+            {
+                SimWorld world = Sim.NewWorld(20, 12);
+                var ore = new Int2(6, 6);
+                var bare = new Int2(12, 6);
+                world.Patches.Set(ore, ShapeType.Square);
+
+                // A drill mines ore; every other kind wants bare ground. Belts are the one kind that
+                // takes either, which is the point of the rule.
+                bool onOre = kind == BuildKind.Drill || kind == BuildKind.Belt;
+                Int2 cell = onOre ? ore : bare;
+
+                Assert.IsTrue(world.TryPlace(kind, cell, Dir.East),
+                    kind + " could not be placed on " + cell + " at all");
+                Assert.AreEqual(onOre, world.Patches.Has(cell),
+                    kind + " left the ground under it wrong while it stood there");
+
+                Assert.IsTrue(world.TryRemoveBuilding(cell), kind + " could not be removed");
+                Assert.AreEqual(onOre, world.Patches.Has(cell), "removing " + kind + " took the ground with it");
+                Assert.AreEqual(onOre ? TileKind.ShapePatch : TileKind.Empty, world.TileGrid.Get(cell),
+                    "and the tile is whatever was underneath the " + kind);
+                Assert.AreEqual(Sim.TestCircles, world.Economy.Circles, "the " + kind + " was fully refunded");
+            }
         }
 
         [Test]

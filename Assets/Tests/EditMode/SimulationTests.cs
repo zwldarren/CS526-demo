@@ -58,6 +58,41 @@ namespace Facet.Tests
         }
 
         [Test]
+        public void Selection_ChangesWhilePaused_SoTheBuildBarStaysLive()
+        {
+            // A pause is exactly when a player re-plans, so the HUD's build bar has to keep working
+            // while the world is held. Selection is not a world change - it is the one input the
+            // paused branch of the tick still applies - which is what keeps the highlighted tile
+            // following the click instead of freezing the moment the game does.
+            SimWorld world = Sim.NewWorld();
+
+            world.Paused = true;
+            world.Tick(new InputCommand(selected: BuildKind.Mortar));
+
+            Assert.AreEqual(BuildKind.Mortar, world.SelectedKind, "the palette selected while paused");
+            Assert.AreEqual(0, world.TickCount, "and nothing else advanced");
+        }
+
+        [Test]
+        public void RestartRequested_RebuildsTheRun_OnTheNextTick()
+        {
+            // The HUD's restart button cannot reach into the middle of a run any more than its
+            // start-wave button can, so it asks the world and the request lands on a tick boundary
+            // like every other input. This is R's path with the key taken out.
+            SimWorld world = Sim.NewWorld(20, 12);
+            Assert.IsTrue(world.TryPlaceBelt(new Int2(5, 5), Dir.East));
+            Assert.Less(world.Economy.Circles, world.Map.StartCircles, "the belt was paid for");
+
+            world.RequestRestart();
+            world.Tick(InputCommand.None);
+
+            Assert.IsFalse(world.Belts.Has(new Int2(5, 5)), "the line is gone");
+            Assert.AreEqual(world.Map.StartCircles, world.Economy.Circles, "and the stockpile is back to the start");
+            Assert.AreEqual(0, world.TickCount, "the run is at tick zero again");
+            Assert.AreEqual(GameStatus.Playing, world.Status);
+        }
+
+        [Test]
         public void SameCommandsFromSameStart_ReplayIdentically()
         {
             SimWorld a = Sim.NewWorld(24, 12);
@@ -104,17 +139,22 @@ namespace Facet.Tests
         }
 
         [Test]
-        public void Grid_OccupiedTileIsNotBuildable()
+        public void Grid_ABeltGoesOnGroundOrOre_ButNotOnABuilding()
         {
             var grid = new TileGrid(8, 4);
             var cell = new Int2(2, 2);
 
-            Assert.IsTrue(grid.IsBuildable(cell));
+            Assert.IsTrue(grid.CanLayBelt(cell), "bare ground takes a belt");
+
+            grid.Set(cell, TileKind.ShapePatch);
+            Assert.IsTrue(grid.CanLayBelt(cell), "and so does a shape patch: transport crosses ore");
+            Assert.IsFalse(grid.IsOccupied(cell), "but ore is not a building");
 
             grid.Set(cell, TileKind.Belt);
 
             Assert.AreEqual(TileKind.Belt, grid.Get(cell));
-            Assert.IsFalse(grid.IsBuildable(cell));
+            Assert.IsTrue(grid.IsOccupied(cell));
+            Assert.IsFalse(grid.CanLayBelt(cell), "an existing belt is in the way");
         }
     }
 }

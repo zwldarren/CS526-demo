@@ -451,5 +451,78 @@ namespace Facet.Tests
             Assert.AreEqual(Dir.North, Sim.DirAt(world, new Int2(2, 1)));
             Assert.AreEqual(0, Sim.ItemCount(world));
         }
+
+        [Test]
+        public void ADraggedRun_CrossesOre_InsteadOfBreakingOnIt()
+        {
+            // A patch used to be treated exactly like the Core by the drag: the cell was skipped and the
+            // direction link dropped across the gap, so a line drawn over a vein came out as two runs
+            // with a one-cell hole between them - the hole being the ore the player was trying to thread
+            // through. Ore is ground a belt can be laid on, so the run is unbroken.
+            SimWorld world = Sim.NewWorld(20, 12);
+            for (int x = 0; x < 3; x++)
+                world.Patches.Set(new Int2(6 + x, 8), ShapeType.Circle);
+
+            Sim.Route(world, new Int2(3, 8), new Int2(12, 8));
+
+            for (int x = 3; x <= 12; x++)
+                Assert.AreEqual(Dir.East, Sim.DirAt(world, new Int2(x, 8)), "the run is unbroken at " + x);
+
+            for (int x = 0; x < 3; x++)
+                Assert.IsTrue(world.Patches.Has(new Int2(6 + x, 8)), "and the vein is still under it");
+        }
+
+        [Test]
+        public void ABeltOnOre_GivesTheOreBack_WhenRemoved()
+        {
+            // The hazard that comes with the rule above. A belt standing on a patch is the one case where
+            // clearing a tile could delete the map's terrain, and deleting it would be permanent and
+            // silent - the player would just find their vein short one cell, with no way to tell why or
+            // to put it back. Removing the belt is a right-click that refunds, so the only thing it may
+            // change is the belt.
+            SimWorld world = Sim.NewWorld(20, 12);
+            var ore = new Int2(7, 7);
+            world.Patches.Set(ore, ShapeType.Square);
+
+            Assert.IsTrue(world.TryPlaceBelt(ore, Dir.East));
+            Assert.AreEqual(TileKind.Belt, world.TileGrid.Get(ore));
+            Assert.IsTrue(world.Patches.Has(ore), "the ore is under the belt, not gone");
+
+            Assert.IsTrue(world.TryRemoveBelt(ore));
+
+            Assert.AreEqual(TileKind.ShapePatch, world.TileGrid.Get(ore), "the vein is back");
+            Assert.AreEqual(ShapeType.Square, world.Patches.ShapeAt(ore), "with its own shape");
+            Assert.IsTrue(world.CanPlaceBelt(ore), "and it can be built over again");
+        }
+        [Test]
+        public void ADragKeepsBuildingWhatThePressStarted_WhenTheSelectionChanges()
+        {
+            // The press decides, so the gesture cannot be re-purposed under the player's hand. Before
+            // this, aiming a drill at a patch and tapping the belt key while the button was still down
+            // turned the same held button into "lay a belt run from the press cell" - and with ore now
+            // being ground a belt can be laid on, that would pave the very cell the drill was aimed at.
+            // The ghost shows what the release will build, so the ghost and the outcome agree.
+            SimWorld world = Sim.NewWorld(20, 12);
+            var ore = new Int2(3, 9);
+            world.Patches.Set(ore, ShapeType.Circle);
+
+            world.Tick(new InputCommand(true, false, ore, primaryPressed: true, selected: BuildKind.Drill));
+            Assert.AreEqual(BuildKind.Drill, world.SelectedKind, "the press takes the selection");
+
+            world.Tick(new InputCommand(true, false, new Int2(8, 9), selected: BuildKind.Belt));
+            Assert.AreEqual(BuildKind.Drill, world.SelectedKind, "which then waits for the next gesture");
+            Assert.IsFalse(world.Belts.Has(new Int2(4, 9)), "the drag did not become a belt run");
+            Assert.IsFalse(world.Belts.Has(ore), "and the cell it was aimed at is still ore");
+
+            world.Tick(new InputCommand(false, false, new Int2(8, 9),
+                primaryReleased: true, selected: BuildKind.Belt));
+
+            Assert.IsTrue(world.Machines.Has(ore), "the drill landed where the press was");
+            Assert.AreEqual(Dir.East, Sim.MachineAt(world, ore).Direction, "aimed by the drag");
+            Assert.AreEqual(ShapeType.Circle, world.Patches.ShapeAt(ore), "on the ore, which is untouched");
+
+            world.Tick(new InputCommand(cursorCell: new Int2(8, 9), selected: BuildKind.Belt));
+            Assert.AreEqual(BuildKind.Belt, world.SelectedKind, "and the next gesture gets the new selection");
+        }
     }
 }

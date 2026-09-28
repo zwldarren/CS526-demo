@@ -1,10 +1,15 @@
 namespace Facet.Core
 {
     /// <summary>
-    /// Everything the player can put on the map, in hotkey order (1..6): the production chain the
-    /// design names (drill, decomposer, cannon) and the transport pieces (belt, pipe, splitter).
-    /// The ordinal is the control that selects it and the field the HUD reads, so the order is
-    /// part of the interface.
+    /// Everything the player can put on the map, in hotkey order (1..9): the two production chains the
+    /// design names (drill / decomposer / cannon on circles, cutter / mortar on squares) and the
+    /// transport and routing pieces (belt, pipe, splitter, sorter). The ordinal is the control that
+    /// selects it and the field the content table indexes by, so the order is part of the interface -
+    /// and a new kind is appended, never inserted, because the ordinal is also what an authored
+    /// content asset stores.
+    ///
+    /// Adding a kind is this enum value plus its row in the <see cref="ContentDatabase"/> - there is no
+    /// second list of kinds to update, and no switch anywhere that has to learn about it.
     /// </summary>
     public enum BuildKind : byte
     {
@@ -14,36 +19,34 @@ namespace Facet.Core
         Pipe = 3,
         Splitter = 4,
         Cannon = 5,
+
+        /// <summary>Routes by shape: the shape its definition filters for leaves by the side it faces,
+        /// everything else by the other wired outlets.</summary>
+        Sorter = 6,
+
+        /// <summary>The second decomposer: runs the bisect recipe (a square into two half-squares).
+        /// The same behaviour as the decomposer with a different recipe, which is what the content
+        /// table is for.</summary>
+        Cutter = 7,
+
+        /// <summary>The second gun: eats half-squares, fires slower, hits harder, reaches further.</summary>
+        Mortar = 8,
     }
 
+    /// <summary>
+    /// Convenience reads over the <b>shipped</b> content table, for code that has no reason to care
+    /// which table a run was built with (the digit-to-kind mapping in the input layer, for instance).
+    /// Code that was handed a <see cref="ContentDatabase"/> should read that instead - these answer
+    /// for <see cref="ContentDatabase.Default"/> only.
+    /// </summary>
     public static class BuildCatalog
     {
-        public const int Count = 6;
+        /// <summary>Every buildable kind, in ordinal (hotkey) order.</summary>
+        public static BuildKind[] All => ContentDatabase.Default.BuildKinds;
 
-        public static readonly BuildKind[] All =
-        {
-            BuildKind.Belt,
-            BuildKind.Drill,
-            BuildKind.Decomposer,
-            BuildKind.Pipe,
-            BuildKind.Splitter,
-            BuildKind.Cannon,
-        };
+        public static int Count => ContentDatabase.Default.BuildKinds.Length;
 
         /// <summary>What a placement of this kind puts on the tile.</summary>
-        public static TileKind TileFor(BuildKind kind)
-        {
-            switch (kind)
-            {
-                case BuildKind.Belt: return TileKind.Belt;
-                case BuildKind.Drill: return TileKind.Drill;
-                case BuildKind.Decomposer: return TileKind.Decomposer;
-                case BuildKind.Pipe: return TileKind.Pipe;
-                case BuildKind.Splitter: return TileKind.Splitter;
-                default: return TileKind.Turret;
-            }
-        }
-
-        public static bool IsTurret(BuildKind kind) => kind == BuildKind.Cannon;
+        public static TileKind TileFor(BuildKind kind) => ContentDatabase.Default.Machine(kind).Tile;
     }
 }

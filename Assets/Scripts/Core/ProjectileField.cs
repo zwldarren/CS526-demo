@@ -51,7 +51,7 @@ namespace Facet.Core
             _count = 0;
         }
 
-        public void Spawn(Vec2 from, int targetId, Vec2 targetPosition, TurretSpec spec)
+        public void Spawn(Vec2 from, int targetId, Vec2 targetPosition, TurretDef spec)
         {
             if (_count == _shots.Length) Array.Resize(ref _shots, _shots.Length * 2);
 

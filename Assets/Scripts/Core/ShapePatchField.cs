@@ -45,8 +45,10 @@ namespace Facet.Core
         }
 
         /// <summary>
-        /// Put the terrain back after a building is removed: a patch if the drill was standing on one,
-        /// bare ground otherwise.
+        /// Put the terrain back after a building is removed: a patch if one was under it, bare ground
+        /// otherwise. Called by both layers that can stand on a tile - <see cref="MachineField"/> and
+        /// <see cref="BeltField"/> - which is what makes "removing a building never removes the ground"
+        /// hold for a belt crossing a vein as well as for a drill standing on one.
         /// </summary>
         public void RestoreTerrain(Int2 cell)
         {

@@ -76,6 +76,15 @@ namespace Facet.Game
         [Tooltip("Half-circle ammo - the Cannon's diet, split out of circles.")]
         public Color HalfCircleShape = new Color(0.361f, 0.757f, 1f, 1f);
 
+        [Tooltip("Square mineral - the second chain's food, mined from square patches. Warm like the " +
+            "circle, so the two minerals read as 'mined' rather than as one mineral and one product.")]
+        public Color SquareShape = new Color(0.941f, 0.376f, 0.678f, 1f);
+
+        [Tooltip("Half-square ammo - the Mortar's diet, split out of squares. Cool like the half-circle, " +
+            "but green rather than blue: the two ammunitions have to be told apart at a glance, because " +
+            "feeding the wrong gun one of them jams the line.")]
+        public Color HalfSquareShape = new Color(0.322f, 0.831f, 0.729f, 1f);
+
         [Tooltip("The defended Core.")]
         public Color Core = new Color(0.976f, 0.980f, 0.988f, 1f);
 
@@ -153,8 +162,17 @@ namespace Facet.Game
         [Header("Placement ghost")]
         public CursorLook Cursor = new CursorLook();
 
-        /// <summary>Body colour for a machine: turrets read one shade darker than production.</summary>
-        public Color BodyColor(TileKind kind) => kind == TileKind.Turret ? TurretBody : MachineBody;
+        [Header("Per-content visual overrides")]
+        [Tooltip("Tick an entry's Override to replace that content's built-in look - a sprite for the " +
+            "Core, the shapes, an enemy or a machine body, or a different procedural silhouette/colour. " +
+            "Untouched entries keep the shipped look, so this block is purely additive: open " +
+            "Assets/Data/Palette.asset to re-skin one thing without touching code.")]
+        public VisualCatalog Visuals = new VisualCatalog();
+
+        /// <summary>Body colour for a machine. Keyed on what the machine <em>does</em> rather than on
+        /// its tile kind, so the second gun reads as a turret the moment its row says so.</summary>
+        public Color BodyColor(BehaviorKind behavior)
+            => behavior == BehaviorKind.Turret ? TurretBody : MachineBody;
 
         /// <summary>Body colour for an enemy.</summary>
         public Color EnemyColor(EnemyKind kind) => SpikeBody;
@@ -166,9 +184,38 @@ namespace Facet.Game
             {
                 case ShapeType.Circle: return CircleShape;
                 case ShapeType.HalfCircle: return HalfCircleShape;
+                case ShapeType.Square: return SquareShape;
+                case ShapeType.HalfSquare: return HalfSquareShape;
                 default: return Outline;
             }
         }
+
+        /// <summary>
+        /// The shipped silhouette of each shape - the one place that decides what a shape looks like.
+        /// A patch in the ground, an item on a belt, a machine's held item and an enemy's weakness all
+        /// come through here, so a new mineral is a colour and a case rather than four drawings.
+        /// </summary>
+        public ProcShape ProcShapeOf(ShapeType shape)
+        {
+            switch (shape)
+            {
+                case ShapeType.HalfCircle: return ProcShape.HalfDisc;
+                case ShapeType.Square: return ProcShape.RegularPolygon;
+                case ShapeType.HalfSquare: return ProcShape.HalfRect;
+                default: return ProcShape.Circle;
+            }
+        }
+
+        /// <summary>Sides for a shape drawn as a regular polygon. The other silhouettes ignore it.</summary>
+        public int SidesOf(ShapeType shape) => shape == ShapeType.Square ? 4 : CircleSides;
+
+        /// <summary>
+        /// The icon set every view that draws a shape as an icon builds its set from - a belt item, a
+        /// ground patch, an enemy's weakness, a machine's held item, a shot. One set covers every shape
+        /// in the content table, so adding a mineral does not add a parameter here.
+        /// </summary>
+        public ShapeIconSet ShapeIcons(float radius, float outlinePixels)
+            => new ShapeIconSet(this, Visuals.Items, radius, outlinePixels);
 
         /// <summary>The material every view shares: the assigned asset when there is one, otherwise
         /// a runtime-built fallback on the vertex-colour shader - which is what keeps a scene with no
@@ -265,6 +312,13 @@ namespace Facet.Game
             [Tooltip("Splitter: port stub half width, matched to the belt strip.")]
             public float SplitterStubHalfWidth = 0.17f;
 
+            [Tooltip("Sorter: radius of the triangle whose apex points out the side the filtered shape " +
+                "leaves by. The apex is the direction readout - a sorter needs no chevron, and no other " +
+                "building is a triangle, so the silhouette says 'router' on its own.")]
+            public float SorterRadius = 0.44f;
+            [Tooltip("Sorter: radius of the shape badge at its centre - which shape it routes.")]
+            public float SorterIconRadius = 0.17f;
+
             [Tooltip("Outlet chevron, scaled down from the belt's: it points out the conversion direction " +
                 "without competing with the tile's own arrow.")]
             public float ChevronLength = 0.13f;
@@ -296,6 +350,22 @@ namespace Facet.Game
             public float SpawnPulseCycles = 3f;
             [Tooltip("The preview quad is near-solid: 'this door opens next' has to survive being glanced at.")]
             public float SpawnPreviewAlpha = 0.9f;
+
+            [Tooltip("Hit flash: how many ticks an enemy stays white-hot after a shot lands. Long " +
+                "enough to see, short enough that a stream of hits reads as a stream.")]
+            public int HitFlashTicks = 4;
+            [Tooltip("Hit flash: the colour an enemy's body is replaced with while it flashes.")]
+            public Color HitFlash = new Color(1f, 1f, 1f, 1f);
+
+            [Tooltip("Kill burst: how many ticks the ring is drawn for after a kill.")]
+            public int KillRingTicks = 10;
+            [Tooltip("Kill burst: how far the ring has expanded when it fades out, in tiles.")]
+            public float KillRingRadius = 0.8f;
+            [Tooltip("Kill burst: ring thickness in screen pixels at the moment of the kill - it thins " +
+                "as it expands, which is what reads as a burst rather than a bubble.")]
+            public float KillRingPixels = 5f;
+            [Tooltip("Kill burst: segments in the ring. Enough that a three-quarter-tile ring reads round.")]
+            public int KillRingSegments = 28;
         }
 
         [Serializable]

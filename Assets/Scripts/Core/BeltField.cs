@@ -46,6 +46,12 @@ namespace Facet.Core
     /// <see cref="TileGrid"/>. Whether a tile <em>is</em> a belt stays <see cref="TileGrid"/>'s
     /// business (<see cref="TileKind.Belt"/>); this class only stores what is riding it.
     ///
+    /// A belt may be laid on a shape patch - transport crosses ore, which is what makes the interior of
+    /// a wide vein workable - so this field is also the second thing that can stand on a patch. That
+    /// makes <see cref="TryRemove"/> responsible for handing the ore back, because the tile's kind is
+    /// what says a belt is there at all: clearing it to <see cref="TileKind.Empty"/> would erase the
+    /// patch permanently, which is the one thing a player action must never be able to do to the map.
+    ///
     /// Determinism: every field lives in a fixed-length array walked by linear index, so no
     /// update depends on dictionary enumeration order. The one order-sensitive decision - which
     /// of two belts feeding the same cell gets it - is settled by a fixed rule (see
@@ -60,11 +66,18 @@ namespace Facet.Core
         /// </summary>
         private const float ProgressEpsilon = 1e-4f;
 
-        private const byte MemoUnknown = 0;
         private const byte MemoTrue = 1;
         private const byte MemoFalse = 2;
 
         private readonly TileGrid _grid;
+
+        /// <summary>What is under a belt, so removing one can give the ground back. Only needed because
+        /// a belt may stand on a shape patch.</summary>
+        private readonly ShapePatchField _patches;
+
+        /// <summary>The stream jams and fixes are reported on. Derived telemetry: nothing here reads
+        /// it back, so the belt layer's determinism does not depend on it.</summary>
+        private readonly SimEventBuffer _events;
 
         private readonly BeltState[] _state;
         private readonly byte[] _memo;
@@ -85,9 +98,11 @@ namespace Facet.Core
         /// is "how many segments are red".</summary>
         public int JamCount { get; private set; }
 
-        public BeltField(TileGrid grid)
+        public BeltField(TileGrid grid, ShapePatchField patches, SimEventBuffer events)
         {
             _grid = grid ?? throw new ArgumentNullException(nameof(grid));
+            _patches = patches ?? throw new ArgumentNullException(nameof(patches));
+            _events = events ?? throw new ArgumentNullException(nameof(events));
 
             int cells = grid.Width * grid.Height;
             _state = new BeltState[cells];
@@ -113,10 +128,12 @@ namespace Facet.Core
 
         public bool IsJammed(Int2 cell) => Has(cell) && _state[_grid.Index(cell)].Jammed;
 
-        /// <summary>Lay a new belt. Fails out of bounds, on an occupied tile, or on an existing belt.</summary>
+        /// <summary>Lay a new belt. Fails out of bounds, on a tile that already holds something, or on
+        /// an existing belt. Ground and shape patches both take one (see
+        /// <see cref="TileGrid.CanLayBelt"/>), so a run can cross a vein.</summary>
         public bool TryPlace(Int2 cell, Dir direction)
         {
-            if (!_grid.IsBuildable(cell)) return false;
+            if (!_grid.CanLayBelt(cell)) return false;
 
             _grid.Set(cell, TileKind.Belt);
             int i = _grid.Index(cell);
@@ -138,7 +155,8 @@ namespace Facet.Core
             return true;
         }
 
-        /// <summary>Remove a belt and destroy whatever it was carrying.</summary>
+        /// <summary>Remove a belt and destroy whatever it was carrying. The ground under it comes back:
+        /// a belt crossing a vein leaves the vein, not a hole.</summary>
         public bool TryRemove(Int2 cell)
         {
             if (!Has(cell)) return false;
@@ -146,7 +164,7 @@ namespace Facet.Core
             int i = _grid.Index(cell);
             if (_state[i].Jammed) JamCount--;
             _state[i] = default;
-            _grid.Set(cell, TileKind.Empty);
+            _patches.RestoreTerrain(cell);
             Revision++;
             return true;
         }
@@ -164,6 +182,10 @@ namespace Facet.Core
             _state[i].Jammed = true;
             JamCount++;
             Revision++;
+
+            // The item that caused the jam, reported with it: a sound or a log line wants to say
+            // *what* arrived wrong, not just that something did.
+            _events.Jammed(cell, _state[i].Item);
             return true;
         }
 
@@ -181,6 +203,7 @@ namespace Facet.Core
             _state[i].Item = ShapeType.None;
             _state[i].Progress = 0f;
             Revision++;
+            _events.JamCleared(cell);
             return true;
         }
 
