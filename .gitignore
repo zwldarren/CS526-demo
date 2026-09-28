@@ -23,6 +23,10 @@
 /[Uu]ser[Ss]ettings/
 *.log
 
+# Written into Assets/Resources by the Test Framework when tests run in batchmode.
+/[Aa]ssets/Resources/PerformanceTestRun*.json
+/[Aa]ssets/Resources/PerformanceTestRun*.json.meta
+
 # By default unity supports Blender asset imports, *.blend1 blender files do not need to be commited to version control.
 *.blend1
 *.blend1.meta

@@ -22,15 +22,27 @@ namespace Facet.Tests
         public void Core_SitsAtTheMapCentre_AtFullHealth_AndIsNotBuildable()
         {
             SimWorld world = Sim.NewWorld();
-            var expected = new Int2(world.TileGrid.Width / 2, world.TileGrid.Height / 2);
+            float mapCentreX = world.TileGrid.Width * 0.5f;
+            float mapCentreY = world.TileGrid.Height * 0.5f;
 
-            Assert.AreEqual(expected, world.Core.Cell, "the Core is the defended object, dead centre");
+            Assert.AreEqual(mapCentreX, world.Core.Center.X, Sim.Tol, "the Core is the defended object, dead centre");
+            Assert.AreEqual(mapCentreY, world.Core.Center.Y, Sim.Tol);
             Assert.AreEqual(world.Config.CoreMaxHp, world.Core.Hp, Sim.Tol);
             Assert.AreEqual(1f, world.Core.HealthFraction, Sim.Tol);
             Assert.IsTrue(world.Core.Alive);
 
-            Assert.AreEqual(TileKind.Core, world.TileGrid.Get(expected));
-            Assert.IsFalse(world.CanPlaceBelt(expected), "nothing may be built on the Core");
+            for (int y = 0; y < CoreState.Size; y++)
+            {
+                for (int x = 0; x < CoreState.Size; x++)
+                {
+                    var cell = new Int2(world.Core.Cell.X + x, world.Core.Cell.Y + y);
+                    Assert.AreEqual(TileKind.Core, world.TileGrid.Get(cell), cell + " is part of the Core's footprint");
+                    Assert.IsFalse(world.CanPlaceBelt(cell), "nothing may be built on the Core: " + cell);
+                }
+            }
+
+            var beside = new Int2(world.Core.Cell.X + CoreState.Size, world.Core.Cell.Y);
+            Assert.IsTrue(world.CanPlaceBelt(beside), "the tile just past the Core's footprint is free: " + beside);
         }
 
         [Test]
@@ -61,8 +73,8 @@ namespace Facet.Tests
 
             for (int i = 0; i < 20; i++)
             {
-                a.TrySpawnItem(new Int2(2, 2), ShapeType.Triangle);
-                b.TrySpawnItem(new Int2(2, 2), ShapeType.Triangle);
+                a.TrySpawnItem(new Int2(2, 2), ShapeType.Circle);
+                b.TrySpawnItem(new Int2(2, 2), ShapeType.Circle);
                 Sim.Tick(a, 7);
                 Sim.Tick(b, 7);
             }

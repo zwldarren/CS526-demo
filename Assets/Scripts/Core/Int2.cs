@@ -18,8 +18,6 @@ namespace Facet.Core
             Y = y;
         }
 
-        public static readonly Int2 Zero = new Int2(0, 0);
-
         public static Int2 operator +(Int2 a, Int2 b) => new Int2(a.X + b.X, a.Y + b.Y);
         public static Int2 operator -(Int2 a, Int2 b) => new Int2(a.X - b.X, a.Y - b.Y);
         public static Int2 operator *(Int2 a, int s) => new Int2(a.X * s, a.Y * s);

@@ -225,7 +225,7 @@ Camera:
   far clip plane: 1000
   field of view: 34
   orthographic: 1
-  orthographic size: 5
+  orthographic size: 14
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2
@@ -369,25 +369,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f190248e3c247034b8fa57a23d86cfb5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: FACET.Game::Facet.Game.SimulationDriver
-  mapWidth: 64
-  mapHeight: 36
   beltSpeedTilesPerSecond: 1
   coreMaxHp: 100
-  palette:
-    Background: {r: 0.07, g: 0.08, b: 0.11, a: 1}
-    GridLine: {r: 1, g: 1, b: 1, a: 0.06}
-    Outline: {r: 0.05, g: 0.06, b: 0.09, a: 1}
-    OutlinePixels: 2
-    Belt: {r: 0.2, g: 0.22, b: 0.28, a: 1}
-    BeltArrow: {r: 0.45, g: 0.5, b: 0.6, a: 1}
-    Jam: {r: 0.87, g: 0.26, b: 0.26, a: 1}
-    TriangleShape: {r: 1, g: 0.78, b: 0.28, a: 1}
-    SquareShape: {r: 0.36, g: 0.76, b: 1, a: 1}
-    CircleShape: {r: 0.72, g: 0.55, b: 1, a: 1}
-    Core: {r: 0.95, g: 0.96, b: 1, a: 1}
-    CoreDamage: {r: 0.87, g: 0.26, b: 0.26, a: 1}
-    CursorOk: {r: 0.35, g: 0.85, b: 0.45, a: 1}
-    CursorBlocked: {r: 0.87, g: 0.32, b: 0.32, a: 1}
+  palette: {fileID: 11400000, guid: 4f2c9d71b3ae4f0d8c6b15a7e93d2c48, type: 2}
   autoCreateViews: 1
 --- !u!4 &1200869206
 Transform:

@@ -3,6 +3,7 @@
     "rootNamespace": "Facet.Tests",
     "references": [
         "FACET.Core",
+        "FACET.Game",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

@@ -40,6 +40,10 @@ namespace Facet.Core
         /// <summary>True when a building may be placed here (in bounds and free).</summary>
         public bool IsBuildable(Int2 c) => InBounds(c) && !IsOccupied(c);
 
+        /// <summary>Wipe every tile back to empty ground. Only used by a restart, which re-stamps the
+        /// terrain immediately afterwards.</summary>
+        public void Clear() => Array.Clear(_tiles, 0, _tiles.Length);
+
         /// <summary>Centre of a tile in world units.</summary>
         public Vec2 CellCenter(Int2 c) => new Vec2(c.X + 0.5f, c.Y + 0.5f);
 
@@ -49,6 +53,12 @@ namespace Facet.Core
             return new Int2((int)MathF.Floor(world.X), (int)MathF.Floor(world.Y));
         }
 
-        private int Index(Int2 c) => c.Y * Width + c.X;
+        /// <summary>Linear index of a cell. Every field stores its per-tile state in this same
+        /// layout, so no field repeats the coordinate arithmetic. Bounds are the caller's business,
+        /// as with <see cref="Get"/>.</summary>
+        internal int Index(Int2 c) => c.Y * Width + c.X;
+
+        /// <summary>The cell at a linear index - the inverse of <see cref="Index"/>.</summary>
+        internal Int2 CellOf(int index) => new Int2(index % Width, index / Width);
     }
 }

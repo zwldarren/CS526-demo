@@ -28,5 +28,18 @@ namespace Facet.Core
             Int2 o = d.Offset();
             return new Vec2(o.X, o.Y);
         }
+
+        /// <summary>The direction facing back the other way. Machines read their input from the cell
+        /// on this side of them, so "which way does the belt at my back point" is this comparison.</summary>
+        public static Dir Opposite(this Dir d)
+        {
+            switch (d)
+            {
+                case Dir.North: return Dir.South;
+                case Dir.East: return Dir.West;
+                case Dir.South: return Dir.North;
+                default: return Dir.East;
+            }
+        }
     }
 }

@@ -13,16 +13,40 @@ namespace Facet.Game
     /// </summary>
     public static class ProcMesh
     {
-        private static Material _unlit;
+        /// <summary>The only built-in shader here that multiplies the mesh's vertex colours. The one
+        /// material every view shares is an asset wired to the Palette (<see cref="Palette.ViewMaterial"/>),
+        /// so a build carries the shader through that reference; this constant names the shader that asset
+        /// must use, and is what the runtime fallback below looks up when no asset is assigned.</summary>
+        public const string VertexColorShader = "Sprites/Default";
 
-        /// <summary>Shared unlit material that respects per-vertex colour.</summary>
+        private static Material _unlit;
+        private static bool _shaderMissing;
+
+        /// <summary>
+        /// The runtime-built fallback material for when the Palette has no view material assigned:
+        /// unlit, respecting per-vertex colour, or null when no usable shader is installed (in which
+        /// case the error has already been logged). The Editor never strips shaders, so the fallback is
+        /// always safe here; a build only survives it when the shader is otherwise included, which is
+        /// exactly what the Palette's material asset guarantees.
+        /// </summary>
         public static Material UnlitMaterial()
         {
             if (_unlit != null) return _unlit;
+            if (_shaderMissing) return null;
 
-            Shader shader = Shader.Find("Sprites/Default");
-            if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader == null) shader = Shader.Find("Unlit/Color");
+            // Every FACET polygon gets its colour from the mesh, so a swapped shader is not a
+            // cosmetic difference - URP/Unlit ignores vertex colours and would paint the whole game
+            // one flat colour. So: never fall back silently to some other shader.
+            Shader shader = Shader.Find(VertexColorShader);
+            if (shader == null)
+            {
+                _shaderMissing = true;
+                Debug.LogError("FACET: shader '" + VertexColorShader + "' was not found, so no FACET " +
+                    "view can be drawn in colour - every polygon would come out a single flat shade. " +
+                    "Assign the Palette's View Material asset; in a build without it, add the shader to " +
+                    "Project Settings > Graphics > Always Included Shaders.");
+                return null;
+            }
 
             _unlit = new Material(shader) { name = "FACET/UnlitVertexColor", hideFlags = HideFlags.DontSave };
             return _unlit;
@@ -36,6 +60,23 @@ namespace Facet.Game
             for (int i = 0; i < sides; i++)
             {
                 float a = (startAngleDeg + 360f * i / sides) * Mathf.Deg2Rad;
+                pts[i] = new Vector2(Mathf.Cos(a) * radius, Mathf.Sin(a) * radius);
+            }
+            return pts;
+        }
+
+        /// <summary>
+        /// Vertices of a half-disc, dome up: the arc from 0 to 180 degrees, closed by the diameter.
+        /// Convex and wound counter-clockwise, so the polygon helpers take it unchanged. The dome-up
+        /// orientation is the fixed one, so an ammo icon and the enemy weak to it read as one shape.
+        /// </summary>
+        public static Vector2[] HalfDisc(int arcSegments, float radius)
+        {
+            if (arcSegments < 2) arcSegments = 2;
+            var pts = new Vector2[arcSegments + 1];
+            for (int i = 0; i <= arcSegments; i++)
+            {
+                float a = (180f * i / arcSegments) * Mathf.Deg2Rad;
                 pts[i] = new Vector2(Mathf.Cos(a) * radius, Mathf.Sin(a) * radius);
             }
             return pts;
@@ -97,38 +138,6 @@ namespace Facet.Game
                     tris.Add(i0); tris.Add(i0 + 2); tris.Add(i0 + 3);
                 }
             }
-        }
-
-        /// <summary>
-        /// A single mesh holding every line of a W x H tile grid, drawn as thin quads.
-        /// Built once - the grid never changes shape.
-        /// </summary>
-        public static Mesh LineGrid(int width, int height, float lineWidth, Color color, string name = "FACET/Grid")
-        {
-            var verts = new List<Vector3>(((width + 1) + (height + 1)) * 4);
-            var colors = new List<Color>(verts.Capacity);
-            var tris = new List<int>(verts.Capacity * 6);
-
-            float h = lineWidth * 0.5f;
-            if (h < 0.0005f) h = 0.0005f;
-
-            for (int x = 0; x <= width; x++)
-            {
-                float cx = x;
-                AppendQuad(verts, colors, tris,
-                    new Vector2(cx - h, 0f), new Vector2(cx + h, 0f),
-                    new Vector2(cx + h, height), new Vector2(cx - h, height), color);
-            }
-
-            for (int y = 0; y <= height; y++)
-            {
-                float cy = y;
-                AppendQuad(verts, colors, tris,
-                    new Vector2(0f, cy - h), new Vector2(width, cy - h),
-                    new Vector2(width, cy + h), new Vector2(0f, cy + h), color);
-            }
-
-            return Finish(verts, colors, tris, name);
         }
 
         /// <summary>Quad pushed into shared buffers. Four corners, CCW order.</summary>

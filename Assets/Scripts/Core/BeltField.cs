@@ -65,7 +65,6 @@ namespace Facet.Core
         private const byte MemoFalse = 2;
 
         private readonly TileGrid _grid;
-        private readonly int _width;
 
         private readonly BeltState[] _state;
         private readonly byte[] _memo;
@@ -81,10 +80,14 @@ namespace Facet.Core
         /// </summary>
         public int Revision { get; private set; }
 
+        /// <summary>How many belt cells are blocked right now. Maintained on mutation rather than
+        /// counted per frame, because the HUD reads it every frame and the twist's whole failure mode
+        /// is "how many segments are red".</summary>
+        public int JamCount { get; private set; }
+
         public BeltField(TileGrid grid)
         {
             _grid = grid ?? throw new ArgumentNullException(nameof(grid));
-            _width = grid.Width;
 
             int cells = grid.Width * grid.Height;
             _state = new BeltState[cells];
@@ -102,13 +105,13 @@ namespace Facet.Core
                 state = default;
                 return false;
             }
-            state = _state[Index(cell)];
+            state = _state[_grid.Index(cell)];
             return true;
         }
 
-        public bool HasItemAt(Int2 cell) => Has(cell) && _state[Index(cell)].HasItem;
+        public bool HasItemAt(Int2 cell) => Has(cell) && _state[_grid.Index(cell)].HasItem;
 
-        public bool IsJammed(Int2 cell) => Has(cell) && _state[Index(cell)].Jammed;
+        public bool IsJammed(Int2 cell) => Has(cell) && _state[_grid.Index(cell)].Jammed;
 
         /// <summary>Lay a new belt. Fails out of bounds, on an occupied tile, or on an existing belt.</summary>
         public bool TryPlace(Int2 cell, Dir direction)
@@ -116,7 +119,7 @@ namespace Facet.Core
             if (!_grid.IsBuildable(cell)) return false;
 
             _grid.Set(cell, TileKind.Belt);
-            int i = Index(cell);
+            int i = _grid.Index(cell);
             _state[i] = default;
             _state[i].Direction = direction;
             Revision++;
@@ -130,7 +133,7 @@ namespace Facet.Core
         public bool TrySetDirection(Int2 cell, Dir direction)
         {
             if (!Has(cell)) return false;
-            _state[Index(cell)].Direction = direction;
+            _state[_grid.Index(cell)].Direction = direction;
             Revision++;
             return true;
         }
@@ -140,7 +143,9 @@ namespace Facet.Core
         {
             if (!Has(cell)) return false;
 
-            _state[Index(cell)] = default;
+            int i = _grid.Index(cell);
+            if (_state[i].Jammed) JamCount--;
+            _state[i] = default;
             _grid.Set(cell, TileKind.Empty);
             Revision++;
             return true;
@@ -153,7 +158,11 @@ namespace Facet.Core
         public bool TryJam(Int2 cell)
         {
             if (!Has(cell)) return false;
-            _state[Index(cell)].Jammed = true;
+
+            int i = _grid.Index(cell);
+            if (_state[i].Jammed) return true;
+            _state[i].Jammed = true;
+            JamCount++;
             Revision++;
             return true;
         }
@@ -166,7 +175,8 @@ namespace Facet.Core
         {
             if (!Has(cell)) return false;
 
-            int i = Index(cell);
+            int i = _grid.Index(cell);
+            if (_state[i].Jammed) JamCount--;
             _state[i].Jammed = false;
             _state[i].Item = ShapeType.None;
             _state[i].Progress = 0f;
@@ -175,14 +185,33 @@ namespace Facet.Core
         }
 
         /// <summary>
-        /// Drop an item onto an empty, unjammed belt cell. Drills use this; so does the debug key
-        /// and the tests, which is why it is not gated behind anything.
+        /// Take the item off a cell and keep the belt. This is how a turret eats and how a decomposer
+        /// takes its delivery: the machine consumes the delivery and the line carries on. The caller decides
+        /// whether the item was the right shape; this only moves it.
+        /// </summary>
+        public bool TryTakeItem(Int2 cell, out ShapeType shape)
+        {
+            shape = ShapeType.None;
+            if (!Has(cell)) return false;
+
+            int i = _grid.Index(cell);
+            if (!_state[i].HasItem || _state[i].Jammed) return false;
+
+            shape = _state[i].Item;
+            _state[i].Item = ShapeType.None;
+            _state[i].Progress = 0f;
+            return true;
+        }
+
+        /// <summary>
+        /// Drop an item onto an empty, unjammed belt cell. Drills use this; so do the tests, which is
+        /// why it is not gated behind anything.
         /// </summary>
         public bool TrySpawnItem(Int2 cell, ShapeType shape)
         {
             if (shape == ShapeType.None || !Has(cell)) return false;
 
-            int i = Index(cell);
+            int i = _grid.Index(cell);
             if (_state[i].Jammed || _state[i].HasItem) return false;
 
             _state[i].Item = shape;
@@ -205,7 +234,7 @@ namespace Facet.Core
             for (int i = 0; i < _state.Length; i++)
             {
                 if (!_state[i].HasItem) continue;
-                _state[i].PreviousWorldPosition = WorldPositionOf(CellOf(i), _state[i].Progress, _state[i].Direction);
+                _state[i].PreviousWorldPosition = WorldPositionOf(_grid.CellOf(i), _state[i].Progress, _state[i].Direction);
             }
         }
 
@@ -255,7 +284,7 @@ namespace Facet.Core
             {
                 int i = _handoffOrder[k];
 
-                int n = Index(CellOf(i) + _state[i].Direction.Offset());
+                int n = _grid.Index(_grid.CellOf(i) + _state[i].Direction.Offset());
                 if (_claimed[n]) continue;   // merge: the first claimant in commit order wins
 
                 _claimed[n] = true;
@@ -295,14 +324,22 @@ namespace Facet.Core
             BeltState s = _state[index];
             if (!s.HasItem || s.Jammed || s.Progress < 1f) return false;
 
-            Int2 next = CellOf(index) + s.Direction.Offset();
+            Int2 next = _grid.CellOf(index) + s.Direction.Offset();
             if (!_grid.InBounds(next) || _grid.Get(next) != TileKind.Belt) return false;  // end of the line
 
-            int n = Index(next);
+            int n = _grid.Index(next);
             if (_state[n].Jammed) return false;
             if (!_state[n].HasItem) return true;
 
             return _state[n].Progress >= 1f && CanHandoff(n);
+        }
+
+        /// <summary>Wipe every cell. Only used by a restart, which clears the tile grid itself first.</summary>
+        public void Clear()
+        {
+            Array.Clear(_state, 0, _state.Length);
+            JamCount = 0;
+            Revision++;
         }
 
         /// <summary>Every belt cell, in stable linear-index order.</summary>
@@ -311,7 +348,7 @@ namespace Facet.Core
             into.Clear();
             for (int i = 0; i < _state.Length; i++)
             {
-                Int2 cell = CellOf(i);
+                Int2 cell = _grid.CellOf(i);
                 if (_grid.Get(cell) != TileKind.Belt) continue;
 
                 into.Add(new BeltSnapshot
@@ -332,7 +369,7 @@ namespace Facet.Core
                 ref readonly BeltState s = ref _state[i];
                 if (!s.HasItem) continue;
 
-                Int2 cell = CellOf(i);
+                Int2 cell = _grid.CellOf(i);
                 into.Add(new ItemSnapshot
                 {
                     Shape = s.Item,
@@ -351,9 +388,5 @@ namespace Facet.Core
         {
             return _grid.CellCenter(cell) + direction.ToVec() * (progress - 0.5f);
         }
-
-        private int Index(Int2 cell) => cell.Y * _width + cell.X;
-
-        private Int2 CellOf(int index) => new Int2(index % _width, index / _width);
     }
 }

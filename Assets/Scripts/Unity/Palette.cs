@@ -5,65 +5,332 @@ using UnityEngine;
 namespace Facet.Game
 {
     /// <summary>
-    /// Every colour FACET draws, in one place. The design doc's art rule is
-    /// "colour says which side it is on, polygon count says how damaged it is" -
-    /// so this is the single source of truth for the first half of that rule.
+    /// Everything FACET draws, as one asset: the shared material, every colour and outline
+    /// thickness, and the per-view geometry (radii, insets, chevrons, alphas) and layer depths.
+    /// The design doc's art rule is "colour says which side it is on, polygon count says how
+    /// damaged it is" - so this asset is the single source of truth for the look of the game,
+    /// and a re-skin is a duplicate of this asset rather than a code change.
+    ///
+    /// Palette is light: a near-white map on a slightly darker void, with dark flat shapes and one
+    /// dark outline, so a hundred small coloured parts stay readable against the ground. Thicknesses
+    /// are in screen pixels because FACET has no textures and no fixed zoom: a width that is constant
+    /// in world units would be wrong at every zoom but one.
     /// </summary>
-    [Serializable]
-    public sealed class Palette
+    [CreateAssetMenu(menuName = "FACET/Palette", fileName = "Palette")]
+    public sealed class Palette : ScriptableObject
     {
-        [Tooltip("Camera clear colour.")]
-        public Color Background = new Color(0.07f, 0.08f, 0.11f, 1f);
+        [Tooltip("Everything outside the map: the void behind the world.")]
+        public Color Background = new Color(0.878f, 0.886f, 0.902f, 1f);
 
-        [Tooltip("Tile grid lines, drawn faintly under everything.")]
-        public Color GridLine = new Color(1f, 1f, 1f, 0.06f);
+        [Tooltip("The map itself: the ground every buildable tile sits on.")]
+        public Color Platform = new Color(0.965f, 0.969f, 0.976f, 1f);
 
-        [Tooltip("Outline used by every polygon.")]
-        public Color Outline = new Color(0.05f, 0.06f, 0.09f, 1f);
+        [Tooltip("Tile grid lines, drawn faintly on the ground.")]
+        public Color GridLine = new Color(0.055f, 0.070f, 0.094f, 0.09f);
+
+        [Tooltip("Tile grid line thickness in screen pixels.")]
+        public float GridLinePixels = 1f;
+
+        [Tooltip("Outline used by every polygon. Dark on purpose: it is what separates one part from another.")]
+        public Color Outline = new Color(0.157f, 0.176f, 0.216f, 1f);
 
         [Tooltip("Outline thickness in screen pixels (design doc: 2 px).")]
         public float OutlinePixels = 2f;
 
+        [Tooltip("Cursor ghost border thickness in screen pixels.")]
+        public float CursorEdgePixels = 5f;
+
         [Tooltip("Belt bed.")]
-        public Color Belt = new Color(0.20f, 0.22f, 0.28f, 1f);
+        public Color Belt = new Color(0.804f, 0.820f, 0.847f, 1f);
 
         [Tooltip("Belt direction chevron. Reads as 'this way'.")]
-        public Color BeltArrow = new Color(0.45f, 0.50f, 0.60f, 1f);
+        public Color BeltArrow = new Color(0.427f, 0.455f, 0.502f, 1f);
 
         [Tooltip("A jammed belt segment - the twist's failure state, so it has to shout.")]
-        public Color Jam = new Color(0.87f, 0.26f, 0.26f, 1f);
+        public Color Jam = new Color(0.878f, 0.263f, 0.263f, 1f);
 
-        [Tooltip("Triangle ammo - Tri-AA's diet.")]
-        public Color TriangleShape = new Color(1f, 0.78f, 0.28f, 1f);
+        [Tooltip("The bed of a shape patch in the ground. The shape itself is drawn in its own colour.")]
+        public Color ShapePatchBed = new Color(0.902f, 0.898f, 0.871f, 1f);
 
-        [Tooltip("Square ammo - the Block Cannon's diet.")]
-        public Color SquareShape = new Color(0.36f, 0.76f, 1f, 1f);
+        [Tooltip("Drill and decomposer bodies: a machine that is not a turret.")]
+        public Color MachineBody = new Color(0.361f, 0.408f, 0.482f, 1f);
 
-        [Tooltip("Circle ammo - the Ring Mortar's diet, and the splash answer to clumped Spikes.")]
-        public Color CircleShape = new Color(0.72f, 0.55f, 1f, 1f);
+        [Tooltip("Turret bodies, one shade darker than the production machines.")]
+        public Color TurretBody = new Color(0.239f, 0.278f, 0.345f, 1f);
+
+        [Tooltip("A machine icon with nothing to work on: a starved turret's ammo shape, an idle decomposer.")]
+        public Color MachineIdle = new Color(0.749f, 0.776f, 0.816f, 1f);
+
+        [Tooltip("Range ring drawn around the turret being placed.")]
+        public Color RangeRing = new Color(0.243f, 0.353f, 0.549f, 0.5f);
+
+        [Tooltip("Spike: fast and light, weak to half-circles.")]
+        public Color SpikeBody = new Color(0.867f, 0.286f, 0.247f, 1f);
+
+        [Tooltip("Wave entry points: brighter while the next wave is counting down.")]
+        public Color SpawnMarker = new Color(0.851f, 0.290f, 0.259f, 1f);
+
+        [Tooltip("Circle mineral - the currency: banked at the Core, spent on buildings.")]
+        public Color CircleShape = new Color(1f, 0.780f, 0.280f, 1f);
+
+        [Tooltip("Half-circle ammo - the Cannon's diet, split out of circles.")]
+        public Color HalfCircleShape = new Color(0.361f, 0.757f, 1f, 1f);
 
         [Tooltip("The defended Core.")]
-        public Color Core = new Color(0.95f, 0.96f, 1f, 1f);
+        public Color Core = new Color(0.976f, 0.980f, 0.988f, 1f);
 
         [Tooltip("What the Core tints toward as it takes damage.")]
-        public Color CoreDamage = new Color(0.87f, 0.26f, 0.26f, 1f);
+        public Color CoreDamage = new Color(0.878f, 0.263f, 0.263f, 1f);
 
         [Tooltip("Ghost preview where the cursor may build.")]
-        public Color CursorOk = new Color(0.35f, 0.85f, 0.45f, 1f);
+        public Color CursorOk = new Color(0.192f, 0.706f, 0.376f, 1f);
 
         [Tooltip("Ghost preview where it may not.")]
-        public Color CursorBlocked = new Color(0.87f, 0.32f, 0.32f, 1f);
+        public Color CursorBlocked = new Color(0.851f, 0.239f, 0.239f, 1f);
 
-        /// <summary>Colour for one of the three ammo shapes. None falls back to the outline.</summary>
+        [Tooltip("Ghost preview where the build is legal but the stockpile cannot cover it.")]
+        public Color CursorNoFunds = new Color(0.945f, 0.651f, 0.253f, 1f);
+
+        [Tooltip("HUD panel behind the readouts.")]
+        public Color HudPanel = new Color(0.055f, 0.071f, 0.098f, 0.82f);
+
+        [Tooltip("HUD body text.")]
+        public Color HudText = new Color(0.933f, 0.949f, 0.969f, 1f);
+
+        [Tooltip("HUD emphasis: the selected building, the wave number.")]
+        public Color HudAccent = new Color(0.353f, 0.722f, 1f, 1f);
+
+        [Tooltip("HUD warning: a jam, a leaking Core, a lost run.")]
+        public Color HudWarn = new Color(0.945f, 0.451f, 0.353f, 1f);
+
+        [Tooltip("HUD good news: turrets armed, a held wave.")]
+        public Color HudGood = new Color(0.290f, 0.788f, 0.451f, 1f);
+
+        [Header("Material")]
+        [Tooltip("The one material every view draws with: unlit, multiplying the meshes' vertex " +
+            "colours (the built-in 'Sprites/Default' shader is the one that does). It lives as an " +
+            "asset so a build cannot strip it: every mesh is generated at runtime, so nothing else " +
+            "carries the shader reference into a build. When empty, a runtime material is created " +
+            "as a fallback - fine in the Editor, which never strips shaders; fatal in a build.")]
+        public Material ViewMaterial;
+
+        [Header("Shapes")]
+        [Tooltip("Sides of every 'circle' polygon. 16 reads as round at any zoom the camera allows.")]
+        public int CircleSides = 16;
+
+        [Header("Layers")]
+        public Layer GridLayer = new Layer(0f, -10);
+        public Layer ShapePatchLayer = new Layer(-0.02f, -8);
+        public Layer BeltLayer = new Layer(-0.05f, -5);
+        public Layer CoreLayer = new Layer(-0.06f, 0);
+        public Layer MachineLayer = new Layer(-0.07f, 1);
+        public Layer ItemLayer = new Layer(-0.08f, 0);
+        public Layer EnemyLayer = new Layer(-0.09f, 5);
+        public Layer ProjectileLayer = new Layer(-0.10f, 6);
+        public Layer CursorLayer = new Layer(-0.2f, 10);
+
+        [Header("Belts")]
+        public BeltLook Belts = new BeltLook();
+
+        [Header("Shape patches in the ground")]
+        public ShapePatchLook Patches = new ShapePatchLook();
+
+        [Header("Items riding the belts")]
+        public ItemLook Items = new ItemLook();
+
+        [Header("Drills, decomposers and turrets")]
+        public MachineLook Machines = new MachineLook();
+
+        [Header("Enemies and wave entry points")]
+        public EnemyLook Enemies = new EnemyLook();
+
+        [Header("The defended Core")]
+        public CoreLook CoreBlock = new CoreLook();
+
+        [Header("Shots in flight")]
+        public ProjectileLook Projectiles = new ProjectileLook();
+
+        [Header("Placement ghost")]
+        public CursorLook Cursor = new CursorLook();
+
+        /// <summary>Body colour for a machine: turrets read one shade darker than production.</summary>
+        public Color BodyColor(TileKind kind) => kind == TileKind.Turret ? TurretBody : MachineBody;
+
+        /// <summary>Body colour for an enemy.</summary>
+        public Color EnemyColor(EnemyKind kind) => SpikeBody;
+
+        /// <summary>Colour for one shape. None falls back to the outline.</summary>
         public Color ShapeColor(ShapeType shape)
         {
             switch (shape)
             {
-                case ShapeType.Triangle: return TriangleShape;
-                case ShapeType.Square: return SquareShape;
                 case ShapeType.Circle: return CircleShape;
+                case ShapeType.HalfCircle: return HalfCircleShape;
                 default: return Outline;
             }
+        }
+
+        /// <summary>The material every view shares: the assigned asset when there is one, otherwise
+        /// a runtime-built fallback on the vertex-colour shader - which is what keeps a scene with no
+        /// Palette wired, and the PlayMode tests, runnable.</summary>
+        public Material ResolveViewMaterial()
+        {
+            return ViewMaterial != null ? ViewMaterial : ProcMesh.UnlitMaterial();
+        }
+
+        /// <summary>Where one view draws: its z-plane and its sorting order within it. Tile
+        /// coordinates are world coordinates, so a view at the wrong Z drifts away from what the
+        /// cursor clicks on.</summary>
+        [Serializable]
+        public sealed class Layer
+        {
+            [Tooltip("World-space z of the view's mesh. The camera sits at -10, so more negative is closer to it.")]
+            public float Z;
+
+            [Tooltip("Sorting order within the mesh queue; higher draws on top.")]
+            public int SortingOrder;
+
+            public Layer(float z, int sortingOrder)
+            {
+                Z = z;
+                SortingOrder = sortingOrder;
+            }
+        }
+
+        [Serializable]
+        public sealed class BeltLook
+        {
+            [Tooltip("Half the width of a belt strip. Neighbouring belts connect edge to edge, " +
+                "so the gap between two parallel lines is what keeps the tile grid reading.")]
+            public float HalfWidth = 0.17f;
+
+            [Tooltip("Direction chevron: how far the tip reaches toward the next cell.")]
+            public float ChevronLength = 0.20f;
+            [Tooltip("Direction chevron: how far the base sits behind the cell centre.")]
+            public float ChevronBack = 0.12f;
+            [Tooltip("Direction chevron: half the base width.")]
+            public float ChevronHalfWidth = 0.18f;
+        }
+
+        [Serializable]
+        public sealed class ShapePatchLook
+        {
+            [Tooltip("Bed inset in tiles on every side, so the patch does not collide with the grid lines.")]
+            public float BedInset = 0.06f;
+
+            [Tooltip("Icon radius in tiles. Small enough to sit inside the drill's frame once one is placed.")]
+            public float IconRadius = 0.28f;
+        }
+
+        [Serializable]
+        public sealed class ItemLook
+        {
+            [Tooltip("Item radius in tiles. Small enough that a packed belt still reads as separate cells.")]
+            public float Radius = 0.22f;
+        }
+
+        [Serializable]
+        public sealed class MachineLook
+        {
+            [Tooltip("Drill frame: inset from the tile edge, in tiles. The drill is a frame, not a block, " +
+                "so the shape patch icon underneath stays visible.")]
+            public float FrameInset = 0.04f;
+            [Tooltip("Drill frame: bar thickness, in tiles.")]
+            public float FrameThickness = 0.14f;
+
+            public float DecomposerRadius = 0.44f;
+            public float DecomposerIconRadius = 0.24f;
+            public float TurretRadius = 0.42f;
+            [Tooltip("Ammo icon on a turret - the armed/silenced readout.")]
+            public float AmmoIconRadius = 0.22f;
+
+            [Tooltip("Barrel length measured from the turret centre.")]
+            public float BarrelLength = 0.62f;
+            [Tooltip("Barrel half width.")]
+            public float BarrelHalfWidth = 0.08f;
+
+            [Tooltip("Pipe: how far off the tube's centreline each rail runs.")]
+            public float PipeRailOffset = 0.18f;
+            [Tooltip("Pipe: rail thickness.")]
+            public float PipeRailWidth = 0.07f;
+            [Tooltip("Pipe: end collar half width - the collars are what read as 'over'.")]
+            public float PipeCollarHalfWidth = 0.30f;
+            [Tooltip("Pipe: end collar thickness along the flow.")]
+            public float PipeCollarThickness = 0.10f;
+            [Tooltip("Pipe: radius of the item riding over the tube.")]
+            public float PipeItemRadius = 0.18f;
+
+            [Tooltip("Splitter: hub half size. The hub is a box the port stubs dock into.")]
+            public float SplitterHubHalfSize = 0.30f;
+            [Tooltip("Splitter: port stub half width, matched to the belt strip.")]
+            public float SplitterStubHalfWidth = 0.17f;
+
+            [Tooltip("Outlet chevron, scaled down from the belt's: it points out the conversion direction " +
+                "without competing with the tile's own arrow.")]
+            public float ChevronLength = 0.13f;
+            public float ChevronBack = 0.08f;
+            public float ChevronHalfWidth = 0.11f;
+            [Tooltip("How far toward the outlet edge the chevron sits.")]
+            public float ChevronOffset = 0.36f;
+        }
+
+        [Serializable]
+        public sealed class EnemyLook
+        {
+            [Tooltip("Body radius in tiles. A 0.84-wide body fills a walkable lane without hiding the tile grid.")]
+            public float BodyRadius = 0.42f;
+            [Tooltip("Weakness-icon radius. Roughly half the body, so it reads as a label, not a second enemy.")]
+            public float WeaknessRadius = 0.20f;
+
+            [Tooltip("The spawn-point frame sits this far inside its cell, so it never touches the grid lines.")]
+            public float SpawnFrameInset = 0.10f;
+            [Tooltip("Frame band thickness in tiles. Thin enough to be a marker, thick enough to see across the map.")]
+            public float SpawnFrameThickness = 0.12f;
+            [Tooltip("The next-wave preview quad sits this far inside its cell, visibly inside the hollow frame.")]
+            public float SpawnInnerMarkerInset = 0.28f;
+            [Tooltip("Steady frame alpha while a wave is running: present but not shouting over the fight.")]
+            public float SpawnWaveRunningAlpha = 0.22f;
+            [Tooltip("Intermission pulse oscillates around this alpha, so the countdown is visible on the map itself.")]
+            public float SpawnPulseCenter = 0.55f;
+            public float SpawnPulseAmplitude = 0.20f;
+            public float SpawnPulseCycles = 3f;
+            [Tooltip("The preview quad is near-solid: 'this door opens next' has to survive being glanced at.")]
+            public float SpawnPreviewAlpha = 0.9f;
+        }
+
+        [Serializable]
+        public sealed class CoreLook
+        {
+            [Tooltip("Gap left between the block and its edge tiles, so the grid still reads around it.")]
+            public float Inset = 0.08f;
+            [Tooltip("Side of the emblem, in tiles. It is the block's identity, not a wall.")]
+            public float EmblemTiles = 1.4f;
+        }
+
+        [Serializable]
+        public sealed class ProjectileLook
+        {
+            [Tooltip("Shot radius in tiles. Smaller than a belt item so the flight reads as something " +
+                "in motion, not a second row of items.")]
+            public float Radius = 0.13f;
+        }
+
+        [Serializable]
+        public sealed class CursorLook
+        {
+            public float FillAlpha = 0.16f;
+            public float EdgeAlpha = 0.85f;
+            [Tooltip("Alpha of the machine-footprint ghost inside the cell.")]
+            public float BodyAlpha = 0.3f;
+            [Tooltip("Inset of the machine-footprint ghost quad.")]
+            public float BodyInset = 0.14f;
+            [Tooltip("Cap on the border, so a far-zoomed-out cell's edges can never cross each other.")]
+            public float MaxEdgeThickness = 0.45f;
+            [Tooltip("Segments in the range ring. Enough that a 9-tile radius reads as a circle.")]
+            public int RingSegments = 72;
+            public float ChevronLength = 0.26f;
+            public float ChevronBack = 0.16f;
+            public float ChevronHalfWidth = 0.22f;
         }
     }
 }

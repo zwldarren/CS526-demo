@@ -4,34 +4,53 @@ using UnityEngine;
 namespace Facet.Game
 {
     /// <summary>
-    /// Draws the tile grid as one flat mesh. Built once in <see cref="Initialize"/> -
-    /// the grid never changes shape, so there is nothing to rebuild.
+    /// Draws the map's ground and its tile grid as one mesh of thin quads: the whole footprint filled
+    /// with <see cref="Palette.Platform"/>, then the lines on top of it. That is what separates the
+    /// buildable world from the void the camera sits in.
+    ///
+    /// The grid only ever changes when the zoom moves the screen-pixel size, which is exactly the
+    /// rebuild reason the gate owns: the line width is a screen-space constant, so the mesh is
+    /// rebuilt when the pixel size moves and not otherwise. Without it the lines are only as wide as
+    /// the zoom they happened to be built at, and vanish into sub-pixel aliasing at the far end of
+    /// the camera's range.
     /// </summary>
     [DefaultExecutionOrder(100)]
-    public sealed class GridRenderer : MonoBehaviour
+    public sealed class GridRenderer : MeshView
     {
-        private const float Z = 0f;
-        private const int SortingOrder = -10;
+        /// <summary>Floor for the line's half-width, so a degenerate quad can never reach the mesh.</summary>
+        private const float MinHalfWidth = 0.0005f;
 
-        private MeshFilter _filter;
-        private MeshRenderer _renderer;
+        private TileGrid _grid;
 
-        public void Initialize(TileGrid grid, Palette palette, float worldPerPixel)
+        protected override Palette.Layer Layer => Colors.GridLayer;
+
+        protected override void OnInitialized()
         {
-            Mesh mesh = ProcMesh.LineGrid(grid.Width, grid.Height, Mathf.Max(worldPerPixel, 0.0005f), palette.GridLine);
+            _grid = World.TileGrid;
+        }
 
-            _filter = gameObject.AddComponent<MeshFilter>();
-            _filter.sharedMesh = mesh;
+        protected override void AppendFrame(in ViewFrame frame)
+        {
+            float half = Mathf.Max(Colors.GridLinePixels * frame.WorldPerPixel * 0.5f, MinHalfWidth);
+            float width = _grid.Width;
+            float height = _grid.Height;
 
-            _renderer = gameObject.AddComponent<MeshRenderer>();
-            _renderer.sharedMaterial = ProcMesh.UnlitMaterial();
-            _renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            _renderer.receiveShadows = false;
-            _renderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-            _renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-            _renderer.sortingOrder = SortingOrder;
+            // The ground goes in first: one draw call, no depth writes, so within this mesh the
+            // lines that follow simply blend over it.
+            AppendQuad(new Vector2(0f, 0f), new Vector2(width, 0f),
+                new Vector2(width, height), new Vector2(0f, height), Colors.Platform);
 
-            transform.position = new Vector3(0f, 0f, Z);
+            for (int x = 0; x <= _grid.Width; x++)
+            {
+                AppendQuad(new Vector2(x - half, 0f), new Vector2(x + half, 0f),
+                    new Vector2(x + half, height), new Vector2(x - half, height), Colors.GridLine);
+            }
+
+            for (int y = 0; y <= _grid.Height; y++)
+            {
+                AppendQuad(new Vector2(0f, y - half), new Vector2(width, y - half),
+                    new Vector2(width, y + half), new Vector2(0f, y + half), Colors.GridLine);
+            }
         }
     }
 }

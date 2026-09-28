@@ -5,107 +5,133 @@ using UnityEngine;
 namespace Facet.Game
 {
     /// <summary>
-    /// Draws every belt cell as one mesh. The bed only changes when a belt is laid, re-pointed or
-    /// jammed, so this rebuilds off the simulation's revision counter rather than every frame.
+    /// Draws every belt cell as one mesh of connected strips: each cell lays its centre hub, one
+    /// lane toward its exit edge, and one lane from every side a feeding neighbour sits on - so a
+    /// straight run reads as one continuous belt, a corner as a turn, and two lines meeting as one
+    /// continuous shape, instead of a row of separate tiles. A lane that reaches a cell which eats (belt, machine,
+    /// Core) docks into it; a lane to nowhere stops short, so a dangling end is visible.
+    ///
+    /// The bed only changes when a belt is laid, re-pointed or jammed, so this view rebuilds when
+    /// the belt field's revision moves rather than every frame - its rebuild reason, declared in
+    /// <see cref="Observe"/>.
     ///
     /// That is also why belts carry no outline: an outline is baked at a fixed pixel width, so it
-    /// would be wrong at every zoom but the one it was built at. The tile grid already separates
-    /// the cells, and the chevron is what actually has to be read, so nothing is lost.
+    /// would be wrong at every zoom but the one it was built at. The gap between parallel lines
+    /// separates the runs, and the chevron is what actually has to be read, so nothing is lost.
     /// </summary>
     [DefaultExecutionOrder(100)]
-    public sealed class BeltRenderer : MonoBehaviour
+    public sealed class BeltRenderer : MeshView
     {
-        private const float Z = -0.05f;
-        private const int SortingOrder = -5;
-
-        /// <summary>Inset so the tile grid still reads between neighbouring belts.</summary>
-        private const float Inset = 0.08f;
-
-        private const float ChevronLength = 0.20f;
-        private const float ChevronBack = 0.12f;
-        private const float ChevronHalfWidth = 0.18f;
+        private static readonly Dir[] Sides = { Dir.North, Dir.East, Dir.South, Dir.West };
 
         private readonly List<BeltSnapshot> _belts = new List<BeltSnapshot>();
-        private readonly List<Vector3> _verts = new List<Vector3>();
-        private readonly List<Color> _colors = new List<Color>();
-        private readonly List<int> _tris = new List<int>();
+        private int _seenRevision = -1;
 
-        private SimWorld _world;
-        private Palette _palette;
-        private Mesh _mesh;
-        private int _builtRevision = -1;
+        protected override Palette.Layer Layer => Colors.BeltLayer;
 
-        public void Initialize(SimWorld world, Palette palette)
+        /// <summary>Items moving deliberately do not bump the revision, so a rebuild means a cell
+        /// was actually laid, re-pointed or jammed - not that the line is busy.</summary>
+        protected override void Observe(in ViewFrame frame)
         {
-            _world = world;
-            _palette = palette;
+            int revision = World.Belts.Revision;
+            if (revision == _seenRevision) return;
 
-            _mesh = new Mesh { name = "FACET/Belts" };
-
-            var filter = gameObject.AddComponent<MeshFilter>();
-            filter.sharedMesh = _mesh;
-
-            var renderer = gameObject.AddComponent<MeshRenderer>();
-            renderer.sharedMaterial = ProcMesh.UnlitMaterial();
-            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            renderer.receiveShadows = false;
-            renderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
-            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-            renderer.sortingOrder = SortingOrder;
-
-            transform.position = new Vector3(0f, 0f, Z);
+            _seenRevision = revision;
+            MarkDirty();
         }
 
-        private void LateUpdate()
+        protected override void AppendFrame(in ViewFrame frame)
         {
-            if (_world == null || _world.Belts.Revision == _builtRevision) return;
-
-            _builtRevision = _world.Belts.Revision;
-            Rebuild();
-        }
-
-        private void Rebuild()
-        {
-            _verts.Clear();
-            _colors.Clear();
-            _tris.Clear();
-            _world.Belts.GetBelts(_belts);
+            World.Belts.GetBelts(_belts);
+            float w = Colors.Belts.HalfWidth;
 
             for (int i = 0; i < _belts.Count; i++)
             {
                 BeltSnapshot belt = _belts[i];
-                float x = belt.Cell.X;
-                float y = belt.Cell.Y;
+                var centre = new Vector2(belt.Cell.X + 0.5f, belt.Cell.Y + 0.5f);
+                Color bed = belt.Jammed ? Colors.Jam : Colors.Belt;
 
-                ProcMesh.AppendQuad(_verts, _colors, _tris,
-                    new Vector2(x + Inset, y + Inset),
-                    new Vector2(x + 1f - Inset, y + Inset),
-                    new Vector2(x + 1f - Inset, y + 1f - Inset),
-                    new Vector2(x + Inset, y + 1f - Inset),
-                    belt.Jammed ? _palette.Jam : _palette.Belt);
+                // The hub every lane docks into. It is also the corner joint: an L's two lanes meet
+                // under it, so a turn never shows a seam.
+                AppendQuad(
+                    new Vector2(centre.x - w, centre.y - w), new Vector2(centre.x + w, centre.y - w),
+                    new Vector2(centre.x + w, centre.y + w), new Vector2(centre.x - w, centre.y + w), bed);
+
+                // The exit lane: full length when the next cell eats the item, short when the run
+                // just ends - a dangling half-lane is the "this goes nowhere" readout.
+                Vec2 forward2 = belt.Direction.ToVec();
+                var forward = new Vector2(forward2.X, forward2.Y);
+                float exitLength = EatsFrom(belt.Cell + belt.Direction.Offset()) ? 0.5f : 0.32f;
+                AppendLane(centre, centre + forward * exitLength, w, bed);
+
+                // A lane from every side something feeds in from: belts pointing at me, and the
+                // machines whose facing pushes onto me (drills and decomposers pushing out, a
+                // splitter whose output port I am). A pipe lands on me from above instead - its own
+                // tube, drawn by the machine view, is the visual for that hand-off.
+                for (int s = 0; s < Sides.Length; s++)
+                {
+                    if (!DeliversInto(belt, Sides[s])) continue;
+                    Vec2 side2 = Sides[s].ToVec();
+                    var side = new Vector2(side2.X, side2.Y);
+                    AppendLane(centre + side * 0.5f, centre, w, bed);
+                }
 
                 AppendChevron(belt);
             }
+        }
 
-            ProcMesh.Finish(_verts, _colors, _tris, "FACET/Belts", _mesh);
+        /// <summary>Would a belt on <paramref name="cell"/> deliver into this tile? Belts dock into
+        /// each other whatever way the neighbour faces (a head-to-head pair is a visible mistake,
+        /// not a gap), and into anything that eats: a machine or the Core.</summary>
+        private bool EatsFrom(Int2 cell)
+        {
+            switch (World.TileGrid.Get(cell))
+            {
+                case TileKind.Belt:
+                case TileKind.Core:
+                case TileKind.Drill:
+                case TileKind.Decomposer:
+                case TileKind.Pipe:
+                case TileKind.Splitter:
+                case TileKind.Turret:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Does the neighbour on <paramref name="side"/> push items onto this belt?</summary>
+        private bool DeliversInto(BeltSnapshot belt, Dir side)
+        {
+            Int2 neighbour = belt.Cell + side.Offset();
+
+            if (World.Belts.TryGet(neighbour, out BeltState other) && other.Direction == side.Opposite())
+                return true;
+
+            if (!World.Machines.TryGet(neighbour, out MachineState machine)) return false;
+
+            switch (machine.Kind)
+            {
+                // Their facing is their output, and it points at me.
+                case TileKind.Drill:
+                case TileKind.Decomposer:
+                    return machine.Direction == side.Opposite();
+                // I am the port it outputs on when my own flow leads away from the hub.
+                case TileKind.Splitter:
+                    return belt.Direction == side.Opposite();
+                default:
+                    return false;
+            }
         }
 
         private void AppendChevron(BeltSnapshot belt)
         {
-            Vec2 forward2 = belt.Direction.ToVec();
-            var forward = new Vector2(forward2.X, forward2.Y);
-            var right = new Vector2(-forward.y, forward.x);
-            var center = new Vector2(belt.Cell.X + 0.5f, belt.Cell.Y + 0.5f);
+            var centre = new Vector2(belt.Cell.X + 0.5f, belt.Cell.Y + 0.5f);
+            Palette.BeltLook look = Colors.Belts;
+            Color color = belt.Jammed ? Colors.Outline : Colors.BeltArrow;
 
-            // Order the three points so the triangle is wound CCW, which Polygon requires. With
-            // tip last and right-hand first, (b - a) x (tip - a) stays positive for all four
-            // cardinal directions, so no per-direction special case is needed.
-            var a = center - forward * ChevronBack + right * ChevronHalfWidth;
-            var b = center - forward * ChevronBack - right * ChevronHalfWidth;
-            var tip = center + forward * ChevronLength;
-
-            Color color = belt.Jammed ? _palette.Outline : _palette.BeltArrow;
-            ProcMesh.AppendPolygon(_verts, _colors, _tris, new[] { a, b, tip }, Vector2.zero, color, color, 0f);
+            AppendChevron(centre, belt.Direction, look.ChevronBack, look.ChevronHalfWidth,
+                look.ChevronLength, color);
         }
     }
 }

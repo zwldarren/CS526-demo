@@ -11,20 +11,17 @@ namespace Facet.Game
     [DefaultExecutionOrder(-100)]
     public sealed class SimulationDriver : MonoBehaviour
     {
-        [Header("Map (tiles)")]
-        [SerializeField] private int mapWidth = 64;
-        [SerializeField] private int mapHeight = 36;
-
         [Header("Simulation")]
         [Tooltip("Belt travel in tiles per second. A cell holds one item, so this is also items per second.")]
         [SerializeField] private float beltSpeedTilesPerSecond = 1f;
         [SerializeField] private float coreMaxHp = 100f;
 
         [Header("Look")]
-        [SerializeField] private Palette palette = new Palette();
+        [Tooltip("Colours and screen-space thicknesses. Create one with Assets > Create > FACET > Palette.")]
+        [SerializeField] private Palette palette;
 
         [Header("Views")]
-        [Tooltip("Build the grid / belt / item / core / cursor views at runtime. Turn off to place views by hand.")]
+        [Tooltip("Build the terrain / machine / belt / item / enemy / shot / core / cursor / HUD views at runtime.")]
         [SerializeField] private bool autoCreateViews = true;
 
         /// <summary>Hard cap on catch-up ticks per frame, so a long hitch cannot spiral.</summary>
@@ -43,13 +40,17 @@ namespace Facet.Game
         public Int2 CursorCell { get; private set; }
 
         public GridRenderer GridView { get; private set; }
-        public BeltRenderer BeltView { get; private set; }
-        public ItemRenderer ItemView { get; private set; }
-        public CoreView CoreView { get; private set; }
+
+        /// <summary>The frame every view is drawing right now. The driver is the only writer.</summary>
+        public FrameClock Frames { get; private set; }
 
         private BuildInput _input;
         private Camera _camera;
         private float _accumulator;
+
+        /// <summary>The HUD, for its panels' claim on the mouse. Null until the views are built (and
+        /// for a driver that never built any).</summary>
+        private HudView _hud;
 
         private void Awake()
         {
@@ -60,8 +61,20 @@ namespace Facet.Game
             // looks like a mesh bug.
             transform.position = Vector3.zero;
 
-            var grid = new TileGrid(mapWidth, mapHeight);
-            World = new SimWorld(grid, new SimConfig
+            if (palette == null)
+            {
+                // Keeps a scene that has not been wired to a Palette asset runnable, and says so
+                // rather than drawing in whatever colour a null reference happens to produce.
+                Debug.LogWarning("FACET: no Palette assigned - using code defaults. " +
+                    "Assign one (Assets > Create > FACET > Palette) to tune colours and line widths.", this);
+                palette = ScriptableObject.CreateInstance<Palette>();
+                palette.hideFlags = HideFlags.DontSave;
+            }
+
+            // The first map in the progression. Multi-map flow (advance on clear) is a driver-level
+            // concern; with one map shipped, the run simply restarts here.
+            MapDefinition map = Maps.All[0];
+            World = new SimWorld(map, new SimConfig
             {
                 BeltSpeed = beltSpeedTilesPerSecond,
                 CoreMaxHp = coreMaxHp,
@@ -88,6 +101,7 @@ namespace Facet.Game
             _camera.backgroundColor = palette.Background;
 
             UpdateWorldPerPixel();
+            Frames = new FrameClock { Frame = new ViewFrame(1f, WorldPerPixel, new Int2(-1, -1)) };
 
             if (autoCreateViews) BuildViews();
         }
@@ -102,15 +116,13 @@ namespace Facet.Game
                 Debug.Log("FACET: " + (World.Paused ? "paused" : "resumed") + " at tick " + World.TickCount, this);
             }
 
-            InputCommand cmd = _input.Poll(_camera, World);
+            // Sample the devices once, then hand the same latched command to every tick this frame:
+            // a click that arrived between two ticks must be applied once, not once per catch-up tick.
+            // The HUD has first claim on the mouse: while the pointer is over a panel the buttons do
+            // not reach the world, so pressing the start-wave button cannot also drop a belt under it.
+            _input.Sample(_camera, World, _hud != null && _hud.PointerOverHud);
+            InputCommand cmd = _input.Snapshot();
             CursorCell = cmd.CursorCell;
-
-            // TEMPORARY, until drills land: T drops a triangle on the cell under the cursor, which is
-            // the only way to watch transport by eye right now. See BuildInput.ConsumeDebugSpawn.
-            if (_input.ConsumeDebugSpawn() && !World.TrySpawnItem(CursorCell, ShapeType.Triangle))
-            {
-                Debug.Log("FACET: T needs an empty belt cell - " + CursorCell + " is not one.", this);
-            }
 
             _accumulator += Time.deltaTime;
 
@@ -118,14 +130,23 @@ namespace Facet.Game
             while (_accumulator >= SimConfig.TickDt && ticks < MaxTicksPerFrame)
             {
                 _accumulator -= SimConfig.TickDt;
+
                 World.Tick(cmd);
+                _input.ConsumeOneShots();
+                cmd = _input.Snapshot();
                 ticks++;
             }
 
             // Drop the leftover backlog rather than trying to catch up forever.
             if (ticks >= MaxTicksPerFrame) _accumulator = 0f;
 
-            Alpha = World.Paused ? 1f : Mathf.Clamp01(_accumulator / SimConfig.TickDt);
+            Alpha = World.Paused || World.Status != GameStatus.Playing
+                ? 1f
+                : Mathf.Clamp01(_accumulator / SimConfig.TickDt);
+
+            // Publish the frame views draw in. Written once here, after the tick loop and after
+            // WorldPerPixel was refreshed, so every view in this frame reads the same value.
+            Frames.Frame = new ViewFrame(Alpha, WorldPerPixel, CursorCell);
         }
 
         private void UpdateWorldPerPixel()
@@ -138,19 +159,34 @@ namespace Facet.Game
         private void BuildViews()
         {
             GridView = AddView<GridRenderer>("Grid");
-            GridView.Initialize(World.TileGrid, palette, WorldPerPixel);
+            GridView.Initialize(World, Frames, palette);
 
-            BeltView = AddView<BeltRenderer>("Belts");
-            BeltView.Initialize(World, palette);
+            ShapePatchRenderer patches = AddView<ShapePatchRenderer>("Patches");
+            patches.Initialize(World, Frames, palette);
 
-            CoreView = AddView<CoreView>("Core");
-            CoreView.Initialize(World, this, palette);
+            BeltRenderer belts = AddView<BeltRenderer>("Belts");
+            belts.Initialize(World, Frames, palette);
 
-            ItemView = AddView<ItemRenderer>("Items");
-            ItemView.Initialize(World, this, palette);
+            CoreView core = AddView<CoreView>("Core");
+            core.Initialize(World, Frames, palette);
+
+            MachineRenderer machines = AddView<MachineRenderer>("Machines");
+            machines.Initialize(World, Frames, palette);
+
+            ItemRenderer items = AddView<ItemRenderer>("Items");
+            items.Initialize(World, Frames, palette);
+
+            EnemyRenderer enemies = AddView<EnemyRenderer>("Enemies");
+            enemies.Initialize(World, Frames, palette);
+
+            ProjectileRenderer shots = AddView<ProjectileRenderer>("Shots");
+            shots.Initialize(World, Frames, palette);
 
             CursorView cursor = AddView<CursorView>("Cursor");
-            cursor.Initialize(World, this, palette);
+            cursor.Initialize(World, Frames, palette);
+
+            _hud = AddView<HudView>("Hud");
+            _hud.Initialize(World, palette);
 
             CameraRig rig = _camera.GetComponent<CameraRig>();
             if (rig == null) rig = _camera.gameObject.AddComponent<CameraRig>();
@@ -167,8 +203,10 @@ namespace Facet.Game
         private void OnDrawGizmosSelected()
         {
             Gizmos.color = new Color(1f, 1f, 1f, 0.25f);
-            Gizmos.DrawWireCube(new Vector3(mapWidth * 0.5f, mapHeight * 0.5f, 0f),
-                new Vector3(mapWidth, mapHeight, 0f));
+            float width = Maps.All[0].Width;
+            float height = Maps.All[0].Height;
+            Gizmos.DrawWireCube(new Vector3(width * 0.5f, height * 0.5f, 0f),
+                new Vector3(width, height, 0f));
         }
     }
 }
