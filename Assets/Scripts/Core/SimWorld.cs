@@ -14,10 +14,11 @@ namespace Facet.Core
     ///   3. machines           - every machine's behaviour, in map order (they read step 2's arrivals)
     ///   4. core sink          - deliveries into the Core bank as circles
     ///   5. projectiles        - fly and burst (they read the shots step 3 fired)
-    ///   6. enemies            - walk and hit the Core
-    ///   7. waves              - spawn, and decide whether the wave or the run is over
+    ///   6. path field         - rebuild the walkers' way to the Core if buildings changed
+    ///   7. enemies            - walk it, and hit the Core or a machine in reach
+    ///   8. waves              - spawn, and decide whether the wave or the run is over
     ///
-    /// <see cref="Events"/> is filled alongside all seven. It is derived - the simulation never reads
+    /// <see cref="Events"/> is filled alongside all eight. It is derived - the simulation never reads
     /// it back - so the stream cannot change what a tick does, and every reaction to the game happens
     /// through it instead of through polling for edges.
     /// </summary>
@@ -84,6 +85,10 @@ namespace Facet.Core
         private readonly CoreSinkSystem _sink;
         private readonly BuildController _build;
 
+        /// <summary>The walkers' way to the Core, rebuilt in the tick whenever the machines' solidity
+        /// changed (a placement, a removal, a building destroyed by enemies, a restart).</summary>
+        private readonly PathField _paths;
+
         /// <summary>A start-wave request that has not been applied yet. Set between ticks, consumed
         /// by <see cref="Tick"/>.</summary>
         private bool _waveRequested;
@@ -101,8 +106,9 @@ namespace Facet.Core
             TileGrid = new TileGrid(map.Width, map.Height);
             Patches = new ShapePatchField(TileGrid);
             Belts = new BeltField(TileGrid, Patches, Events);
-            Machines = new MachineField(TileGrid, Patches, Belts, Content);
-            Enemies = new EnemyField(Content, Events);
+            Machines = new MachineField(TileGrid, Patches, Belts, Content, Events);
+            _paths = new PathField(TileGrid, Machines);
+            Enemies = new EnemyField(Content, Events, TileGrid, Machines, _paths);
             Projectiles = new ProjectileField();
             Waves = new WaveDirector(Enemies, map, Events);
             Economy = new EconomyState(Content, map.StartCircles);
@@ -154,12 +160,13 @@ namespace Facet.Core
             _machineSystem.Step(SimConfig.TickDt);
             _sink.Step(Core.Cell);
             Projectiles.Step(SimConfig.TickDt, Enemies);
+            _paths.Sync();
             Enemies.Step(SimConfig.TickDt, ref Core);
             Waves.Step(SimConfig.TickDt);
 
             // The N key and the HUD's button, applied *after* the wave step: on the tick a wave's last
-            // enemy dies, step 9 is what ends the wave, so a request arriving in that same tick would
-            // find a wave still running and be swallowed. Here it starts the intermission step 9 just
+            // enemy dies, step 8 is what ends the wave, so a request arriving in that same tick would
+            // find a wave still running and be swallowed. Here it starts the intermission step 8 just
             // opened. A wave that is actually running ignores the request, and so does a finished run,
             // so this stays exactly the "start it now, only once" the design asks for. The countdown
             // path is untouched: start-early is this line's only job.

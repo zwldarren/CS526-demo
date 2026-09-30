@@ -159,6 +159,11 @@ namespace Facet.Core
         /// for every other behaviour, which routes nothing.</summary>
         public readonly ShapeType Filter;
 
+        /// <summary>Health an enemy must chew through to demolish this building. <b>0 means
+        /// indestructible</b>: such a building is never targeted and never damaged, which is how
+        /// belts and custom tables that predate HP opt out.</summary>
+        public readonly float MaxHp;
+
         /// <summary>
         /// Does this machine's own facing mean anything? A drill pushes onto the cell it faces, a pipe
         /// carries across in its facing, a sorter sends its filtered shape out the side it faces, and a
@@ -171,11 +176,14 @@ namespace Facet.Core
         /// side.
         /// </summary>
         public bool UsesFacing
-            => Behavior != BehaviorKind.Converter && Behavior != BehaviorKind.Splitter;
+            => Tile == TileKind.Belt
+               || (Behavior != BehaviorKind.None
+                   && Behavior != BehaviorKind.Converter
+                   && Behavior != BehaviorKind.Splitter);
 
         public MachineDef(ContentId id, BuildKind build, TileKind tile, BehaviorKind behavior, int cost,
             string name, string description, ContentId recipeId, float interval,
-            ShapeType filter = ShapeType.None)
+            ShapeType filter = ShapeType.None, float maxHp = 0f)
         {
             Id = id;
             Build = build;
@@ -187,6 +195,7 @@ namespace Facet.Core
             RecipeId = recipeId;
             Interval = interval;
             Filter = filter;
+            MaxHp = maxHp;
         }
     }
 
@@ -233,21 +242,41 @@ namespace Facet.Core
         public readonly string Name;
         public readonly float Hp;
         public readonly float Speed;
-        public readonly float CoreDamage;
+
+        /// <summary>Damage per hit, whether the target is a building or the Core.</summary>
+        public readonly float Damage;
         public readonly float AttackInterval;
         public readonly ShapeType Weakness;
 
-        public EnemyDef(ContentId id, EnemyKind kind, string name, float hp, float speed, float coreDamage,
-            float attackInterval, ShapeType weakness)
+        /// <summary>How close an attackable machine's cell centre must be for the enemy to stop and
+        /// attack it instead of walking on.</summary>
+        public readonly float AggroRange;
+
+        /// <summary>
+        /// How far away an attackable machine is <em>noticed</em>: outside <see cref="AggroRange"/> but
+        /// within this, the enemy leaves its path and charges the machine, then attacks it once it is in
+        /// reach. Without it a building two tiles off the lane is furniture an enemy walks past, which
+        /// reads as an enemy that cannot see.
+        ///
+        /// A value at or below <see cref="AggroRange"/> means enemies attack only what they walk into,
+        /// which is the honest way to opt a kind out of charging.
+        /// </summary>
+        public readonly float DetectionRange;
+
+        public EnemyDef(ContentId id, EnemyKind kind, string name, float hp, float speed, float damage,
+            float attackInterval, ShapeType weakness, float aggroRange = 1.6f,
+            float detectionRange = 2.5f)
         {
             Id = id;
             Kind = kind;
             Name = name;
             Hp = hp;
             Speed = speed;
-            CoreDamage = coreDamage;
+            Damage = damage;
             AttackInterval = attackInterval;
             Weakness = weakness;
+            AggroRange = aggroRange;
+            DetectionRange = detectionRange;
         }
     }
 
@@ -410,40 +439,41 @@ namespace Facet.Core
             var machines = new[]
             {
                 // A belt is cheap per cell but a long run is a real purchase, which is what makes the
-                // map's distances matter.
+                // map's distances matter. HP is 0 - inert: a belt is not a machine, so nothing can
+                // target it and it is never damaged.
                 new MachineDef(new ContentId("belt"), BuildKind.Belt, TileKind.Belt, BehaviorKind.None,
                     cost: 1, name: "Belt",
                     description: "carries one shape per tile · drag to lay a run",
-                    recipeId: ContentId.None, interval: 0f),
+                    recipeId: ContentId.None, interval: 0f, maxHp: 0f),
 
                 // Matched to one belt, so a drill exactly saturates a line: one item every 30 ticks at
                 // 30 Hz, never 31.
                 new MachineDef(new ContentId("drill"), BuildKind.Drill, TileKind.Drill, BehaviorKind.Drill,
                     cost: 10, name: "Drill",
                     description: "on a shape patch · mines the belt it faces",
-                    recipeId: ContentId.None, interval: 1f),
+                    recipeId: ContentId.None, interval: 1f, maxHp: 40f),
 
                 new MachineDef(new ContentId("decomposer"), BuildKind.Decomposer, TileKind.Decomposer,
                     BehaviorKind.Converter, cost: 15, name: "Decomposer",
                     description: "splits one shape into its parts",
-                    recipeId: DecomposeRecipeId, interval: 0f),
+                    recipeId: DecomposeRecipeId, interval: 0f, maxHp: 60f),
 
                 // Well under a belt's one second per item, so a pipe never throttles the line it carries.
                 new MachineDef(new ContentId("pipe"), BuildKind.Pipe, TileKind.Pipe, BehaviorKind.Pipe,
                     cost: 6, name: "Pipe",
                     description: "jumps one tile - the crossing piece · never jams",
-                    recipeId: ContentId.None, interval: 0.25f),
+                    recipeId: ContentId.None, interval: 0.25f, maxHp: 30f),
 
                 new MachineDef(new ContentId("splitter"), BuildKind.Splitter, TileKind.Splitter,
                     BehaviorKind.Splitter, cost: 10, name: "Splitter",
                     description: "ports read off the belts around it · in/out by their direction",
-                    recipeId: ContentId.None, interval: 0f),
+                    recipeId: ContentId.None, interval: 0f, maxHp: 40f),
 
                 // The one turret: mid-rate, mid-range, eats half-circles. Two shots kill a Spike, so a
                 // single fed cannon holds a trickle; a packed wave wants two lines or a split feed.
                 new MachineDef(new ContentId("cannon"), BuildKind.Cannon, TileKind.Turret,
                     BehaviorKind.Turret, cost: 20, name: "Cannon", description: string.Empty,
-                    recipeId: ContentId.None, interval: 0f),
+                    recipeId: ContentId.None, interval: 0f, maxHp: 80f),
 
                 // Ships filtering for circles, which is the split map 1 wants: face the Core and the
                 // money banks while the half-circles carry on down the line. Priced under a cannon so
@@ -451,7 +481,7 @@ namespace Facet.Core
                 new MachineDef(new ContentId("sorter"), BuildKind.Sorter, TileKind.Sorter,
                     BehaviorKind.Sorter, cost: 12, name: "Sorter",
                     description: "routes by shape · one shape leaves by the side it faces",
-                    recipeId: ContentId.None, interval: 0f, filter: ShapeType.Circle),
+                    recipeId: ContentId.None, interval: 0f, filter: ShapeType.Circle, maxHp: 45f),
 
                 // The second chain's converter. Identical to the decomposer but for which recipe it
                 // names, which is the whole point of the behaviour seam: a new production stage is a
@@ -459,14 +489,21 @@ namespace Facet.Core
                 new MachineDef(new ContentId("cutter"), BuildKind.Cutter, TileKind.Cutter,
                     BehaviorKind.Converter, cost: 15, name: "Cutter",
                     description: "splits one shape into its parts",
-                    recipeId: BisectRecipeId, interval: 0f),
+                    recipeId: BisectRecipeId, interval: 0f, maxHp: 60f),
 
                 // The second gun. Its numbers are deliberately not a straight upgrade: the mortar buys
                 // its damage with a slower cycle and a longer line, so the two guns answer different
                 // waves rather than the second one replacing the first.
                 new MachineDef(new ContentId("mortar"), BuildKind.Mortar, TileKind.Mortar,
                     BehaviorKind.Turret, cost: 30, name: "Mortar", description: string.Empty,
-                    recipeId: ContentId.None, interval: 0f),
+                    recipeId: ContentId.None, interval: 0f, maxHp: 100f),
+
+                // The maze tool: cheap per cell, three times a drill's health, and nothing to do. It
+                // exists so an enemy's walk can be shaped - and so a completely sealed Core is a
+                // decision the player can make and an enemy can undo, at 6 damage a second.
+                new MachineDef(new ContentId("wall"), BuildKind.Wall, TileKind.Wall, BehaviorKind.None,
+                    cost: 2, name: "Wall", description: "blocks enemies · soaks their attacks",
+                    recipeId: ContentId.None, interval: 0f, maxHp: 120f),
             };
 
             var turrets = new[]
@@ -485,10 +522,13 @@ namespace Facet.Core
             var enemies = new[]
             {
                 // Fast, light, weak to ◠. Two cannon shots bring one down, so the question is only how
-                // fast the line behind the cannon can feed it.
+                // fast the line behind the cannon can feed it. Its 1.6-tile attack reach and 2.5-tile
+                // notice range are the two machine radii: it hits what it walks into, and it charges
+                // what it sees from a tile and a half further out - which is why the map's guns are
+                // laid out three tiles off the lanes rather than two.
                 new EnemyDef(new ContentId("spike"), EnemyKind.Spike, "Spike",
-                    hp: 6f, speed: 1.5f, coreDamage: 6f, attackInterval: 1f,
-                    weakness: ShapeType.HalfCircle),
+                    hp: 6f, speed: 1.5f, damage: 6f, attackInterval: 1f,
+                    weakness: ShapeType.HalfCircle, aggroRange: 1.6f, detectionRange: 2.5f),
             };
 
             return new ContentDatabase(machines, turrets, enemies, shapes, recipes);

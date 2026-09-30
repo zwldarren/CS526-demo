@@ -105,13 +105,17 @@ namespace Facet.Game
             [Tooltip("A Sorter's filter: the shape that leaves by the side it faces, everything else by " +
                 "the other wired outlets. Ignored by every other behaviour.")]
             public ShapeType Filter = ShapeType.Circle;
+            [Tooltip("Health enemies must chew through to demolish this building. 0 keeps the shipped value.")]
+            public float MaxHp = 0f;
 
-            /// <summary>This row as the engine-free definition the simulation runs on. It takes both the
-            /// id and the <paramref name="build"/> its slot carries rather than reading its own fields, so
-            /// a row resolved by identity still describes the building its id names - and a row that names
-            /// no id still comes out with the slot's real one.</summary>
-            public MachineDef ToDef(ContentId id, BuildKind build) => new MachineDef(id, build, Tile,
-                Behavior, Cost, Name, Description, new ContentId(RecipeId), Interval, Filter);
+            /// <summary>This row as the engine-free definition the simulation runs on. It takes the id,
+            /// the <paramref name="build"/> its slot carries and the effective
+            /// <paramref name="maxHp"/> rather than reading its own fields, so a row resolved by
+            /// identity still describes the building its id names - and a row that leaves MaxHp at 0
+            /// still comes out with the shipped slot's health, mirroring this asset's purely-additive
+            /// rule.</summary>
+            public MachineDef ToDef(ContentId id, BuildKind build, float maxHp) => new MachineDef(id, build, Tile,
+                Behavior, Cost, Name, Description, new ContentId(RecipeId), Interval, Filter, maxHp);
 
             /// <summary>The identity this row ends up carrying: its own, or the slot's shipped one when the
             /// row names none - so a table built from an asset never holds a definition that cannot be
@@ -132,6 +136,7 @@ namespace Facet.Game
                 RecipeId = def.RecipeId.Value,
                 Interval = def.Interval,
                 Filter = def.Filter,
+                MaxHp = def.MaxHp,
             };
         }
 
@@ -179,13 +184,24 @@ namespace Facet.Game
             public string Name = "Spike";
             public float Hp = 6f;
             public float Speed = 1.5f;
-            public float CoreDamage = 6f;
+            [Tooltip("Damage per hit, whether the target is a building or the Core.")]
+            public float Damage = 6f;
             public float AttackInterval = 1f;
             [Tooltip("The shape it is weak to; also what the HUD names in the wave preview.")]
             public ShapeType Weakness = ShapeType.HalfCircle;
+            [Tooltip("How close an attackable machine must be for it to stop and attack. 0 keeps the " +
+                "shipped value.")]
+            public float AggroRange = 0f;
+            [Tooltip("How far away an attackable machine is noticed and charged from. At or below the " +
+                "attack reach it only attacks what it walks into. 0 keeps the shipped value.")]
+            public float DetectionRange = 0f;
 
-            public EnemyDef ToDef(ContentId id, EnemyKind kind) => new EnemyDef(id, kind, Name, Hp, Speed,
-                CoreDamage, AttackInterval, Weakness);
+            /// <summary>This row as the engine-free definition the simulation runs on. It takes the
+            /// effective radii the merge resolved rather than reading its own fields, for the same
+            /// additive reason <see cref="MachineRow.ToDef"/> takes <c>maxHp</c>.</summary>
+            public EnemyDef ToDef(ContentId id, EnemyKind kind, float aggroRange, float detectionRange)
+                => new EnemyDef(id, kind, Name, Hp, Speed, Damage, AttackInterval, Weakness, aggroRange,
+                    detectionRange);
 
             /// <summary>The identity this row ends up carrying, or the slot's shipped one when it names
             /// none - see <see cref="MachineRow.IdOr"/>.</summary>
@@ -198,9 +214,11 @@ namespace Facet.Game
                 Name = def.Name,
                 Hp = def.Hp,
                 Speed = def.Speed,
-                CoreDamage = def.CoreDamage,
+                Damage = def.Damage,
                 AttackInterval = def.AttackInterval,
                 Weakness = def.Weakness,
+                AggroRange = def.AggroRange,
+                DetectionRange = def.DetectionRange,
             };
         }
 
@@ -246,7 +264,11 @@ namespace Facet.Game
 
                 int slot = SlotFor(shipped.MachineSlot(new ContentId(row.Id)), (int)row.Build);
                 MachineDef shippedDef = shipped.Machine(shipped.BuildKinds[slot]);
-                defs[slot] = row.ToDef(row.IdOr(shippedDef.Id), shipped.BuildKinds[slot]);
+
+                // 0 on the row means "unset", so a row (or a whole asset) authored before HP existed
+                // keeps the shipped value - the same purely-additive rule this asset follows everywhere.
+                float maxHp = row.MaxHp > 0f ? row.MaxHp : shippedDef.MaxHp;
+                defs[slot] = row.ToDef(row.IdOr(shippedDef.Id), shipped.BuildKinds[slot], maxHp);
             }
 
             return defs;
@@ -291,7 +313,10 @@ namespace Facet.Game
 
                 int slot = SlotFor(shipped.EnemySlot(new ContentId(row.Id)), (int)row.Kind);
                 EnemyDef shippedDef = shipped.Enemy(shipped.EnemyKinds[slot]);
-                defs[slot] = row.ToDef(row.IdOr(shippedDef.Id), shipped.EnemyKinds[slot]);
+                float aggroRange = row.AggroRange > 0f ? row.AggroRange : shippedDef.AggroRange;
+                float detectionRange = row.DetectionRange > 0f ? row.DetectionRange : shippedDef.DetectionRange;
+                defs[slot] = row.ToDef(row.IdOr(shippedDef.Id), shipped.EnemyKinds[slot], aggroRange,
+                    detectionRange);
             }
 
             return defs;

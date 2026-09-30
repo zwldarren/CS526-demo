@@ -160,6 +160,34 @@ namespace Facet.Tests
         }
 
         [Test]
+        public void ARowLeftAtZero_KeepsTheShippedHealth_AndReach()
+        {
+            // 0 in a row means "unset", not "indestructible", for the same additive reason every other
+            // field is an override: an asset authored before buildings had health must not silently make
+            // its rows invulnerable, and an enemy row must not lose its aggressive-scan reach.
+            _asset.Machines = new[]
+            {
+                new ContentDatabaseAsset.MachineRow { Id = "wall", Cost = 3 },        // MaxHp left at 0
+                new ContentDatabaseAsset.MachineRow { Id = "cannon", MaxHp = 40f },   // this one is retuned
+            };
+            _asset.Enemies = new[]
+            {
+                new ContentDatabaseAsset.EnemyRow { Id = "spike" },                   // AggroRange left at 0
+            };
+
+            ContentDatabase table = _asset.ToCore();
+
+            Assert.AreEqual(3, table.Machine(BuildKind.Wall).Cost, "the row landed on the wall");
+            Assert.AreEqual(120f, table.Machine(BuildKind.Wall).MaxHp, Sim.Tol,
+                "0 on the row keeps the shipped health");
+            Assert.AreEqual(40f, table.Machine(BuildKind.Cannon).MaxHp, Sim.Tol, "a retune does land");
+            Assert.AreEqual(1.6f, table.Enemy(EnemyKind.Spike).AggroRange, Sim.Tol,
+                "0 keeps the shipped reach");
+            Assert.AreEqual(2.5f, table.Enemy(EnemyKind.Spike).DetectionRange, Sim.Tol,
+                "and the shipped notice range");
+        }
+
+        [Test]
         public void EveryRow_IsTheInverseOfItsDefinition()
         {
             // FromDef and ToDef have to invert each other. CreateContentDatabase writes an asset through one
@@ -170,7 +198,8 @@ namespace Facet.Tests
             foreach (BuildKind kind in shipped.BuildKinds)
             {
                 MachineDef def = shipped.Machine(kind);
-                MachineDef back = ContentDatabaseAsset.MachineRow.FromDef(def).ToDef(def.Id, def.Build);
+                MachineDef back = ContentDatabaseAsset.MachineRow.FromDef(def)
+                    .ToDef(def.Id, def.Build, def.MaxHp);
 
                 Assert.AreEqual(def.Id, back.Id, kind + " id");
                 Assert.AreEqual(def.Build, back.Build, kind + " build");
@@ -182,6 +211,7 @@ namespace Facet.Tests
                 Assert.AreEqual(def.RecipeId, back.RecipeId, kind + " recipe");
                 Assert.AreEqual(def.Interval, back.Interval, Sim.Tol, kind + " interval");
                 Assert.AreEqual(def.Filter, back.Filter, kind + " filter");
+                Assert.AreEqual(def.MaxHp, back.MaxHp, Sim.Tol, kind + " max hp");
 
                 if (!shipped.IsTurret(kind)) continue;
 
@@ -201,16 +231,19 @@ namespace Facet.Tests
             foreach (EnemyKind kind in shipped.EnemyKinds)
             {
                 EnemyDef def = shipped.Enemy(kind);
-                EnemyDef back = ContentDatabaseAsset.EnemyRow.FromDef(def).ToDef(def.Id, def.Kind);
+                EnemyDef back = ContentDatabaseAsset.EnemyRow.FromDef(def)
+                    .ToDef(def.Id, def.Kind, def.AggroRange, def.DetectionRange);
 
                 Assert.AreEqual(def.Id, back.Id, kind + " id");
                 Assert.AreEqual(def.Kind, back.Kind, kind + " kind");
                 Assert.AreEqual(def.Name, back.Name, kind + " name");
                 Assert.AreEqual(def.Hp, back.Hp, Sim.Tol, kind + " hp");
                 Assert.AreEqual(def.Speed, back.Speed, Sim.Tol, kind + " speed");
-                Assert.AreEqual(def.CoreDamage, back.CoreDamage, Sim.Tol, kind + " core damage");
+                Assert.AreEqual(def.Damage, back.Damage, Sim.Tol, kind + " damage");
                 Assert.AreEqual(def.AttackInterval, back.AttackInterval, Sim.Tol, kind + " attack interval");
                 Assert.AreEqual(def.Weakness, back.Weakness, kind + " weakness");
+                Assert.AreEqual(def.AggroRange, back.AggroRange, Sim.Tol, kind + " aggro range");
+                Assert.AreEqual(def.DetectionRange, back.DetectionRange, Sim.Tol, kind + " detection range");
             }
 
             foreach (RecipeDef recipe in shipped.Recipes)

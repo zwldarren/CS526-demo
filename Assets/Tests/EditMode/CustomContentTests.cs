@@ -58,7 +58,7 @@ namespace Facet.Tests
             var rockThrower = new TurretDef(BuildKind.Cannon, "Rock Thrower", ShapeType.Circle,
                 fireInterval: 1f, damage: 3f, range: 7f, projectileSpeed: 14f);
             var fragile = new EnemyDef(new ContentId("spike"), EnemyKind.Spike, "Fragile", hp: 3f, speed: 1f,
-                coreDamage: 6f, attackInterval: 1f, weakness: ShapeType.Circle);
+                damage: 6f, attackInterval: 1f, weakness: ShapeType.Circle);
 
             SimWorld world = new SimWorld(Sim.TestMap(20, 12), new SimConfig { CoreMaxHp = 1000000f },
                 Rewrite(turret: rockThrower, enemy: fragile));
@@ -126,9 +126,9 @@ namespace Facet.Tests
         /// A copy of the shipped table with one or two rows swapped. Built by reading
         /// <see cref="ContentDatabase.Default"/> rather than by restating every number, so a test only
         /// has to be explicit about what it is changing - and so it keeps passing when the shipped
-        /// numbers are retuned.
+        /// numbers are retuned. Shared with the other suites that need a table of their own.
         /// </summary>
-        private static ContentDatabase Rewrite(MachineDef machine = null, RecipeDef recipe = null,
+        internal static ContentDatabase Rewrite(MachineDef machine = null, RecipeDef recipe = null,
             TurretDef turret = null, EnemyDef enemy = null)
         {
             ContentDatabase shipped = ContentDatabase.Default;

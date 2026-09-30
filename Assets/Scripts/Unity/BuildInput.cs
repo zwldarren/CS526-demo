@@ -19,13 +19,13 @@ namespace Facet.Game
     /// </summary>
     public sealed class BuildInput
     {
-        /// <summary>The digits that select a building, in <see cref="BuildCatalog.All"/> order. There
-        /// is one more digit than there are kinds; the loop below stops at the table's length, so the
-        /// spare keys are inert until content grows into them.</summary>
+        /// <summary>The digits that select a building, in <see cref="BuildCatalog.All"/> order. The
+        /// tenth kind is key 0, beside 1..9; the loop below stops at the table's length, so a shorter
+        /// table's spare keys are inert.</summary>
         private static readonly Key[] BuildKeys =
         {
             Key.Digit1, Key.Digit2, Key.Digit3, Key.Digit4, Key.Digit5, Key.Digit6,
-            Key.Digit7, Key.Digit8, Key.Digit9,
+            Key.Digit7, Key.Digit8, Key.Digit9, Key.Digit0,
         };
 
         private bool _pauseToggleRequested;

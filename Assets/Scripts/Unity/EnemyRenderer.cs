@@ -99,8 +99,8 @@ namespace Facet.Game
                 Vec2 p = Vec2.Lerp(enemy.PreviousPosition, enemy.Position, frame.Alpha);
                 var at = new Vector2(p.X, p.Y);
 
-                // Red outline only while it is actually hurting the Core - damage in progress,
-                // not damage taken.
+                // Red outline while it is actually hurting something - the Core or a machine it
+                // stopped to chew. Attacking means damage in progress, not damage taken.
                 Color outline = enemy.Attacking ? Colors.Jam : Colors.Outline;
                 AppendEnemyBody(enemy, at, outline, outlineWidth);
 

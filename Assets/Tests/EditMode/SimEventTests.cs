@@ -131,7 +131,7 @@ namespace Facet.Tests
 
             Assert.Greater(world.Events.CountOf(SimEventKind.CoreDamaged), 0, "it hit the Core");
             Assert.IsTrue(world.Events.TryLast(SimEventKind.CoreDamaged, out SimEvent hit));
-            Assert.AreEqual(6f, hit.Amount, Sim.Tol, "the spike's core damage");
+            Assert.AreEqual(6f, hit.Amount, Sim.Tol, "the spike's damage");
         }
 
         [Test]
@@ -143,7 +143,7 @@ namespace Facet.Tests
             SimWorld world = Sim.NewWorld();
             Sim.BuildMapOneEconomyLine(world);
             Sim.TickUntilFunded(world, Balance.Cost(BuildKind.Drill) + Balance.Cost(BuildKind.Decomposer)
-                + Balance.Cost(BuildKind.Pipe) + Balance.Cost(BuildKind.Cannon) + 25);
+                + Balance.Cost(BuildKind.Pipe) + Balance.Cost(BuildKind.Cannon) + 26);
             Sim.BuildMapOneDefence(world, out _, out _);
             Sim.Tick(world, (int)(35 * SimConfig.TickRate));
 

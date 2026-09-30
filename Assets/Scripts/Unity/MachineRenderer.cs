@@ -31,6 +31,7 @@ namespace Facet.Game
     ///   sorter      - a triangle whose apex points out the side the filtered shape leaves by, with
     ///                 that shape as a badge: the silhouette says "router", the apex says "this way"
     ///   turret      - the barrel, and the ammo icon whose grey-out is the "silenced" state
+    ///   wall        - a plain block; damage tint is its whole state
     /// </summary>
     [DefaultExecutionOrder(105)]
     public sealed class MachineRenderer : MeshView
@@ -55,6 +56,10 @@ namespace Facet.Game
         private Vector2[] _sorterBody;
         private Vector2[] _sorterRotated;
 
+        /// <summary>The wall's inset block: an axis-aligned square, cached like the other silhouettes
+        /// so the wall costs no allocation either.</summary>
+        private Vector2[] _wallBody;
+
         private ShapeIconSet _carriedIcons;
         private ShapeIconSet _ammoIcons;
         private ShapeIconSet _pipeIcons;
@@ -78,6 +83,15 @@ namespace Facet.Game
         /// behaviour calls for - so a second gun is dark like a gun without being listed here.</summary>
         private Color FillOf(VisualStyle style, BehaviorKind behavior)
             => Overridden(style) ? style.Fill : Colors.BodyColor(behavior);
+
+        /// <summary>
+        /// A body's fill after damage: reddened toward the Core's hurt colour as health drains, the
+        /// same language <see cref="CoreView"/> uses, so a chewed building reads at a glance. An
+        /// indestructible building (MaxHp 0) is never damaged and is never tinted. Sprite-overridden
+        /// bodies go through this too, with white as the healthy end, exactly as the Core's sprite does.
+        /// </summary>
+        private Color Damaged(Color body, in MachineSnapshot machine)
+            => machine.MaxHp <= 0f ? body : Color.Lerp(Colors.CoreDamage, body, machine.HealthFraction);
 
         private Color OutlineOf(VisualStyle style)
             => Overridden(style) ? style.Outline : Colors.Outline;
@@ -112,6 +126,10 @@ namespace Facet.Game
             // draw rotates to the machine's direction.
             _sorterBody = ProcMesh.RegularPolygon(3, look.SorterRadius);
 
+            // The wall's block: a square (4 sides turned 45 degrees) inset from the cell edge, so two
+            // neighbouring walls still show the grid line between them.
+            _wallBody = ProcMesh.RegularPolygon(4, (0.5f - look.WallInset) * 1.4143f, 45f);
+
             // The held / carried / ammo icons follow the item-shape overrides, so re-skinning a shape
             // is consistent on the belts, in the ground and on the machines that handle it.
             _carriedIcons = Colors.ShapeIcons(look.DecomposerIconRadius, Colors.OutlinePixels);
@@ -140,6 +158,7 @@ namespace Facet.Game
                     case BehaviorKind.Splitter: AppendSplitter(_machines[i], outlineWidth); break;
                     case BehaviorKind.Sorter: AppendSorter(_machines[i], outlineWidth); break;
                     case BehaviorKind.Turret: AppendTurret(_machines[i], outlineWidth); break;
+                    case BehaviorKind.None: AppendWall(_machines[i], outlineWidth); break;
                 }
             }
 
@@ -156,14 +175,14 @@ namespace Facet.Game
 
             if (IsSprite(style))
             {
-                DrawSprite(style, centre, Color.white);
+                DrawSprite(style, centre, Damaged(Color.white, machine));
                 AppendChevron(machine.Cell, machine.Direction, FillOf(style, machine.Behavior));
                 return;
             }
 
             float x = machine.Cell.X;
             float y = machine.Cell.Y;
-            Color body = FillOf(style, machine.Behavior);
+            Color body = Damaged(FillOf(style, machine.Behavior), machine);
 
             Palette.MachineLook look = Colors.Machines;
             float lo = look.FrameInset;
@@ -198,11 +217,12 @@ namespace Facet.Game
 
             if (IsSprite(style))
             {
-                DrawSprite(style, centre, Color.white);
+                DrawSprite(style, centre, Damaged(Color.white, machine));
             }
             else
             {
-                AppendPolygon(BodyOf(style, _converterBody), centre, FillOf(style, machine.Behavior),
+                AppendPolygon(BodyOf(style, _converterBody), centre,
+                    Damaged(FillOf(style, machine.Behavior), machine),
                     OutlineOf(style), BodyOutlineWidth(style, outlineWidth));
             }
 
@@ -220,7 +240,7 @@ namespace Facet.Game
             var forward = new Vector2(forward2.X, forward2.Y);
             var right = new Vector2(-forward.y, forward.x);
             VisualStyle style = Over(machine.Build);
-            Color body = FillOf(style, machine.Behavior);
+            Color body = Damaged(FillOf(style, machine.Behavior), machine);
 
             Palette.MachineLook look = Colors.Machines;
             Vector2 entry = centre - forward * 0.5f;
@@ -228,7 +248,7 @@ namespace Facet.Game
 
             if (IsSprite(style))
             {
-                DrawSprite(style, centre, Color.white);
+                DrawSprite(style, centre, Damaged(Color.white, machine));
             }
             else
             {
@@ -259,11 +279,12 @@ namespace Facet.Game
 
             if (IsSprite(style))
             {
-                DrawSprite(style, centre, Color.white);
+                DrawSprite(style, centre, Damaged(Color.white, machine));
             }
             else
             {
-                AppendPolygon(BodyOf(style, _splitterHub), centre, FillOf(style, machine.Behavior),
+                AppendPolygon(BodyOf(style, _splitterHub), centre,
+                    Damaged(FillOf(style, machine.Behavior), machine),
                     OutlineOf(style), BodyOutlineWidth(style, outlineWidth));
             }
 
@@ -291,14 +312,14 @@ namespace Facet.Game
 
             if (IsSprite(style))
             {
-                DrawSprite(style, centre, Color.white);
+                DrawSprite(style, centre, Damaged(Color.white, machine));
             }
             else
             {
                 Vector2[] body = BodyOf(style, _sorterBody);
                 AppendRotatedPolygon(body, ScratchFor(ref _sorterRotated, body.Length), centre,
-                    FacingAngle(machine.Direction), FillOf(style, machine.Behavior), OutlineOf(style),
-                    BodyOutlineWidth(style, outlineWidth));
+                    FacingAngle(machine.Direction), Damaged(FillOf(style, machine.Behavior), machine),
+                    OutlineOf(style), BodyOutlineWidth(style, outlineWidth));
             }
 
             AppendIcon(_sorterIcons, machine.Shape, centre, null);
@@ -397,11 +418,11 @@ namespace Facet.Game
         {
             var centre = CellCentre(machine.Cell);
             VisualStyle style = Over(machine.Build);
-            Color body = FillOf(style, machine.Behavior);
+            Color body = Damaged(FillOf(style, machine.Behavior), machine);
 
             if (IsSprite(style))
             {
-                DrawSprite(style, centre, Color.white);
+                DrawSprite(style, centre, Damaged(Color.white, machine));
             }
             else
             {
@@ -447,6 +468,30 @@ namespace Facet.Game
             _barrel[3] = nearLeft;
 
             AppendPolygon(_barrel, Vector2.zero, body, Colors.Outline, outlineWidth);
+        }
+
+        /// <summary>
+        /// The wall: a plain inset block in the machine-body colour, reddening as it is chewed. It has
+        /// no behaviour and no state to show - the point of a wall is that there is nothing to read
+        /// but "solid, and how close to falling" - so the silhouette is the whole readout.
+        ///
+        /// Only walls reach here. Belts are also <see cref="BehaviorKind.None"/> but they are not
+        /// machines, so they never appear in <see cref="MachineField.GetMachines"/>.
+        /// </summary>
+        private void AppendWall(in MachineSnapshot machine, float outlineWidth)
+        {
+            var centre = CellCentre(machine.Cell);
+            VisualStyle style = Over(machine.Build);
+
+            if (IsSprite(style))
+            {
+                DrawSprite(style, centre, Damaged(Color.white, machine));
+                return;
+            }
+
+            AppendPolygon(BodyOf(style, _wallBody), centre,
+                Damaged(FillOf(style, machine.Behavior), machine),
+                OutlineOf(style), BodyOutlineWidth(style, outlineWidth));
         }
 
         private void AppendChevron(Int2 cell, Dir direction, Color color)

@@ -19,8 +19,8 @@ shape or recipe is a row plus the enum value that names it, not a `switch` that 
 | `WASD` / arrows | pan the camera |
 | mouse wheel | zoom |
 | **click the build bar** | select a building — the bottom bar is a row of buttons, each showing its hotkey, name, role and cost |
-| `1`–`9` | select the same buildings by hotkey — **press the same digit again to drop the selection**, exactly as clicking the same tile twice does |
-| `Q` / `E`, or the info card's **turn** buttons | turn the placement ghost (a splitter and every converter have no facing to turn) |
+| `1`–`9`, `0` | select the same buildings by hotkey — the tenth kind, the wall, is `0`; **press the same digit again to drop the selection**, exactly as clicking the same tile twice does |
+| `Q` / `E`, or the info card's **turn** buttons | turn the placement ghost (a splitter, every converter and the wall have no facing to turn) |
 | `Esc`, or the info card's **inspect** button | drop the selection: the cursor then only **reads** — the state a run opens in |
 | left mouse | place the selected building — **drag** to lay a belt run or to aim a machine. With nothing selected the same click pins whatever is under it and the info card describes *it* |
 | right mouse | delete what is under the cursor for a full refund; on a jammed segment it **clears the jam** instead |
@@ -39,7 +39,8 @@ Nothing has to be selected, though, and the run opens that way: with no building
 does not preview a placement, it reads. A left click pins whatever is under it and the info card
 describes *that* instead of a ghost - its name and coordinates, the sides its belts are actually
 wired to, what it is doing this second (splitting, carrying, holding, starved, jammed, nothing to
-push onto), its numbers, and the facing that means something to it - while the pinned tile stays
+push onto), its numbers, its health where it has any, and the facing that means something to it - while
+the pinned tile stays
 outlined on the map beside a turret's range ring, so the card and the map agree about which building
 "it" is. Reading is not only for what the player built: a vein in the ground reports the mineral it
 yields and how big it is, and a **wave's doorway** reports which waves walk in at it - the two things
@@ -101,8 +102,21 @@ that 5% - one table, drawn on and obeyed by two views.
   first wave has no countdown and never arrives on its own — `N`, or the HUD's button, calls it, and
   only the defence that is actually finished is tested. Waves after it count down on the clock and
   walk in on their own, so the schedule is pressure the player meets later, not noise at the start.
-* **Enemies walk over buildings.** Damage has to stay the only defence — but with build costs now
-  real, whether buildings may block movement is worth revisiting on a later map.
+* **Machines are solid and destructible; belts are walkable and not.** Every machine has health
+  (`MaxHp` in the content table), and enemies treat it as an obstacle: they follow a flow field to the
+  Core *around* machines, stop and attack any attackable machine within reach, and **charge one they
+  notice** a little further out — a Spike hits what it walks into (1.6 tiles) and heads for what it
+  sees from 2.5, which is why a gun belongs three tiles off the lane and why a bare wall beside the
+  road is bait rather than scenery. An enemy only resumes the walk once the machine is gone. When the
+  Core is sealed in they walk straight at it and chew through whatever stands in the way. The
+  Core's own rules are unchanged — reach its ring and it takes the hits. A **belt** is a flat conveyor,
+  so it stays walkable and unattackable: the 1-cost cell must not become the cheapest wall. Destruction
+  pays no refund — a chewed building is lost work, not a cash-out — and a definition left at `MaxHp` 0
+  is indestructible and untargetable, which is how belts and any custom row that predates HP opt out.
+* **The wall is the maze tool** — 2 ○, 120 hp, no behaviour, hotkey `0`. It is what makes the flow
+  field a decision rather than a detour: it decides which way a wave walks, and it is what a sealed-in
+  enemy eats. A machine chews red as it takes hits, so how close a wall is to falling is visible; a
+  belt pointed at a wall simply stalls at full progress, like any building that never consumes.
 * **Every drill needs a shape patch in the ground**, and every shape patch only accepts a drill — so a
   patch is what a chain is built around. **A belt, though, can be laid across ore**: transport crosses
   a vein, only machines are kept off it. That is what makes a wide vein workable at all, because a
@@ -157,7 +171,10 @@ glyph and conversion recipe the simulation reads. Edit a value and it takes effe
 no recompile. Every row is an **override**, so a kind with no row keeps the shipped value and the
 asset is purely additive.
 
-* **Retune** - change a cost, a fire interval, a drill's rate, an enemy's HP. The HUD prints its
+* **Retune** - change a cost, a fire interval, a drill's rate, a building's or an enemy's HP (a
+  machine's `Max Hp` row; 0 keeps the shipped value, so an old asset is unchanged), or how far an enemy
+  notices machines (its `Detection Range`; at or below the attack reach it only hits what it walks
+  into). The HUD prints its
   numbers from the same definitions, so what it claims and what the tick does cannot disagree. Each
   row also carries the content's stable `Id`, and a row that names one lands by that id rather than by
   the enum's ordinal - so inserting a value into `BuildKind` cannot silently retune a different
@@ -196,16 +213,17 @@ for testing.
 ### What just happened: the event stream
 
 The simulation reports what it does on one stream (`SimWorld.Events`): a building went up or came
-down, a segment jammed (and with which shape), a shot was fired, an enemy was hit or killed, a
-circle banked, the Core took damage, a wave started or was cleared, the run ended. Nothing in the
+down, an enemy hit a building or finished one off, a segment jammed (and with which shape), a shot was
+fired, an enemy was hit or killed, a circle banked, the Core took damage, a wave started or was
+cleared, the run ended. Nothing in the
 simulation reads it back, so it cannot change the fight it describes - which is why every reaction to
 the game hangs off it instead of off the simulation.
 
 Two things use it today. **A kill bursts**: the enemy goes white-hot when a shot lands, and leaves an
 expanding ring where it died - the first visual feedback in the project, and the reason to have a
-stream at all. **The HUD reports the last second**: circles banked, shots, kills, and where the last
-jam is, all read off the same stream, so the readout cannot disagree with the flash about what just
-happened. A sound or a screen shake would be a third reader, not a third mechanism.
+stream at all. **The HUD reports the last second**: circles banked, shots, kills, buildings lost, and
+where the last jam is, all read off the same stream, so the readout cannot disagree with the flash
+about what just happened. A sound or a screen shake would be a third reader, not a third mechanism.
 
 The buffer is a ring, so it always holds the most recent events and a reader needs no bookkeeping:
 it reads the window it cares about and the present is guaranteed to be in there. `Dropped` counts
@@ -216,7 +234,7 @@ fell behind" rather than guessing.
 
 | Suite | Where | What it covers |
 |---|---|---|
-| EditMode | `Assets/Tests/EditMode` | belts (27), the content table and its Editor carrier (19), production, drills and ore (11), waves and restart (9), the event stream (8), economy and the Core bank (8), turrets/jams (8), the sorter (7), the maps and the campaign (8), the second chain (7), splitters (6), pipes (5), the tick, pause/restart and determinism (8), the inspect cursor (9), the machine registry and port masks (5), a custom table driving the game (5), visual overrides (7), end-to-end balance (3), build settings (2), the camera's pan bound (5) - 167 total |
+| EditMode | `Assets/Tests/EditMode` | belts (27), the content table and its Editor carrier (20), production, drills and ore (11), waves and restart (9), the event stream (8), siege, health and destruction (7), economy and the Core bank (8), turrets/jams (8), the sorter (7), the maps and the campaign (8), the second chain (7), splitters (6), pipes (5), the tick, pause/restart and determinism (8), the inspect cursor (9), the machine registry and port masks (5), a custom table driving the game (5), visual overrides (7), end-to-end balance (3), build settings (2), the camera's pan bound (5) - 175 total |
 | PlayMode smoke | `Assets/Tests/PlayMode` | the shipped scene boots with its Palette and content asset wired, the driver builds every view, advances the world across frames, and draws real geometry for what is on the map; a Sprite override reaches the view; a kill leaves a burst that then fades; clearing a map loads the next one under the same views - 9 total |
 
 ```bash
@@ -240,7 +258,8 @@ Assets/Scripts/Core        engine-free simulation (no UnityEngine reference)
   TileGrid, BeltField      the map and the belt layer: one item per cell, hand-offs as a fixpoint
   Maps                     the map table: size, starting stockpile, patches, spawn points, waves
   ContentDatabase          the one table of what exists: shapes, recipes, machines, turrets, enemies, costs
-  MachineField             the built things: where they are, what they hold, and the occupancy registry
+  MachineField             the built things: where they are, what they hold, their health, and the
+                           occupancy registry; enemy damage and destruction (no refund) land here
   MachineDelivery          the belt-to-machine rule: which cells deliver in, which sides are outlets
   MachineSystem            one pass over the machines, dispatching each to its definition's behaviour
   DrillBehavior …          the behaviours: drill, converter (recipe-driven), pipe, splitter, sorter, turret
@@ -249,7 +268,9 @@ Assets/Scripts/Core        engine-free simulation (no UnityEngine reference)
   SimEvents                the tick's event stream: what the simulation reports having done
   CampaignState            where the player is across maps: which map, and how many are cleared
   CoreSinkSystem           deliveries into the Core bank as spendable circles
-  EnemyField               walks at the Core, or hits it; damage is the shape's business
+  PathField                the walkers' way to the Core: a BFS direction field over the cells no
+                           machine blocks, rebuilt only when a building comes or goes
+  EnemyField               walks the flow field, stops to hit machines in reach, or hits the Core
   ProjectileField          shots in flight, so the shape that killed something is visible
   WaveDirector             the map's waves: the first held for the player, the countdowns after it, and what counts as a cleared wave
   BuildController          selection, the read pin, drag-to-lay, machine aiming, jam-clearing delete, and the bill

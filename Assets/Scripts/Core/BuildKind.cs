@@ -1,12 +1,12 @@
 namespace Facet.Core
 {
     /// <summary>
-    /// Everything the player can put on the map, in hotkey order (1..9): the two production chains the
+    /// Everything the player can put on the map, in hotkey order: the two production chains the
     /// design names (drill / decomposer / cannon on circles, cutter / mortar on squares) and the
-    /// transport and routing pieces (belt, pipe, splitter, sorter). The ordinal is the control that
-    /// selects it and the field the content table indexes by, so the order is part of the interface -
-    /// and a new kind is appended, never inserted, because the ordinal is also what an authored
-    /// content asset stores.
+    /// transport, routing and fortification pieces (belt, pipe, splitter, sorter, wall). The ordinal
+    /// is the control that selects it and the field the content table indexes by, so the order is part
+    /// of the interface - and a new kind is appended, never inserted, because the ordinal is also what
+    /// an authored content asset stores. The tenth kind is key 0 beside keys 1..9.
     ///
     /// Adding a kind is this enum value plus its row in the <see cref="ContentDatabase"/> - there is no
     /// second list of kinds to update, and no switch anywhere that has to learn about it.
@@ -31,6 +31,11 @@ namespace Facet.Core
 
         /// <summary>The second gun: eats half-squares, fires slower, hits harder, reaches further.</summary>
         Mortar = 8,
+
+        /// <summary>Cheap, high-HP and behaviourless: the maze tool the siege mechanic needs. It has no
+        /// <see cref="BehaviorKind"/>, so it is placed and forgotten - it just stands there and soaks
+        /// whatever walks into it.</summary>
+        Wall = 9,
     }
 
     /// <summary>

@@ -198,7 +198,7 @@ namespace Facet.Game
             SimEventBuffer events = _world.Events;
             int since = _world.TickCount - RecentTicks;
 
-            int banked = 0, shots = 0, kills = 0, jams = 0;
+            int banked = 0, shots = 0, kills = 0, jams = 0, lost = 0;
             var lastJam = new Int2(0, 0);
 
             for (int i = 0; i < events.Count; i++)
@@ -211,6 +211,7 @@ namespace Facet.Game
                     case SimEventKind.Banked: banked++; break;
                     case SimEventKind.ShotFired: shots++; break;
                     case SimEventKind.EnemyKilled: kills++; break;
+                    case SimEventKind.BuildingDestroyed: lost++; break;
                     case SimEventKind.Jammed: jams++; lastJam = e.Cell; break;
                 }
             }
@@ -226,6 +227,7 @@ namespace Facet.Game
             if (banked > 0) Add(banked + " " + Glyph(ShapeType.Circle) + " banked");
             if (shots > 0) Add(shots + (shots == 1 ? " shot" : " shots"));
             if (kills > 0) Add(kills + (kills == 1 ? " kill" : " kills"));
+            if (lost > 0) Add(lost + " lost");
             if (jams > 0) Add(jams + " jammed at (" + lastJam.X + "," + lastJam.Y + ")");
 
             return "last 1s:  " + (text.Length == 0 ? "quiet" : text.ToString());
@@ -400,7 +402,7 @@ namespace Facet.Game
             if (selected) Border(rect, _palette.HudAccent, 2f * s);
             else if (hovered) Border(rect, Blend(_palette.HudText, _palette.HudPanel, 0.35f), 1f * s);
 
-            Label(new Rect(rect.x + 8f * s, rect.y + 9f * s, 26f * s, 15f * s), (index + 1).ToString(),
+            Label(new Rect(rect.x + 8f * s, rect.y + 9f * s, 26f * s, 15f * s), ((index + 1) % 10).ToString(),
                 selected ? _palette.HudAccent : _palette.MachineIdle, _small);
 
             Label(new Rect(rect.x, rect.y + 9f * s, rect.width - 8f * s, 15f * s),
@@ -549,6 +551,14 @@ namespace Facet.Game
 
             string stats = Stats(machine.Build);
             if (!string.IsNullOrEmpty(stats)) InspectLine(panel, s, ref y, stats, category);
+
+            if (machine.MaxHp > 0f)
+            {
+                bool hurting = machine.HealthFraction < 0.4f;
+                InspectLine(panel, s, ref y, "holding " + Mathf.CeilToInt(machine.Hp) + " / " +
+                    Mathf.CeilToInt(machine.MaxHp) + " health",
+                    hurting ? _palette.HudWarn : _palette.HudGood);
+            }
 
             InspectLine(panel, s, ref y, FacingNote(machine), _palette.MachineIdle);
         }
@@ -798,6 +808,8 @@ namespace Facet.Game
         private string FacingNote(in MachineSnapshot machine)
         {
             MachineDef def = _world.Content.Machine(machine.Build);
+            if (def.Behavior == BehaviorKind.None && def.Tile != TileKind.Belt)
+                return "no facing — a wall only stands in the way";
             if (!def.UsesFacing) return "ports read off the belts around it";
 
             switch (machine.Behavior)
@@ -852,6 +864,7 @@ namespace Facet.Game
                 case BehaviorKind.Converter: return "PROCESSING";
                 case BehaviorKind.Splitter:
                 case BehaviorKind.Sorter: return "ROUTING";
+                case BehaviorKind.None: return kind == BuildKind.Belt ? "TRANSPORT" : "WALL";
                 default: return "TRANSPORT";
             }
         }
@@ -922,8 +935,18 @@ namespace Facet.Game
                 case BehaviorKind.Splitter:
                     return "deals items round-robin · skips blocked outlets";
 
+                case BehaviorKind.None:
+                    // A belt and a wall are both behaviour-less; the tile kind is what tells them
+                    // apart. The belt's line used to be the default's, moved here so the wall can
+                    // have one of its own.
+                    return def.Tile == TileKind.Belt
+                        ? _world.Config.BeltSpeed.ToString("0.##") + " shapes/s per segment"
+                        : def.MaxHp > 0f
+                            ? def.MaxHp.ToString("0.##") + " hp · blocks enemies"
+                            : string.Empty;
+
                 default:
-                    return _world.Config.BeltSpeed.ToString("0.##") + " shapes/s per segment";
+                    return string.Empty;
             }
         }
 

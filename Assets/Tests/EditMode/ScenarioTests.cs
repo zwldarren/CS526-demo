@@ -62,7 +62,7 @@ namespace Facet.Tests
             Assert.AreEqual(startedWith - 30, world.Economy.Circles, "the economy line is paid for");
 
             Sim.TickUntilFunded(world, Balance.Cost(BuildKind.Drill) + Balance.Cost(BuildKind.Decomposer)
-                + Balance.Cost(BuildKind.Pipe) + Balance.Cost(BuildKind.Cannon) + 25);
+                + Balance.Cost(BuildKind.Pipe) + Balance.Cost(BuildKind.Cannon) + 26);
             Assert.Greater(world.Economy.TotalBanked, 0, "circles physically belted into the Core");
 
             Sim.BuildMapOneDefence(world, out _, out _);

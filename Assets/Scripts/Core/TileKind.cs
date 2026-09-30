@@ -54,6 +54,10 @@ namespace Facet.Core
         /// <see cref="BehaviorKind.Turret"/>; its diet and numbers come from its
         /// <see cref="TurretDef"/>.</summary>
         Mortar = 11,
+
+        /// <summary>Cheap solid block with HP and nothing else: no ports, no behaviour. Enemies walk
+        /// around it, and chew through it when they cannot.</summary>
+        Wall = 12,
     }
 
     public static class TileKindExtensions
@@ -68,7 +72,7 @@ namespace Facet.Core
         public static bool IsMachine(this TileKind kind)
             => kind == TileKind.Drill || kind == TileKind.Decomposer || kind == TileKind.Pipe
                || kind == TileKind.Splitter || kind == TileKind.Turret || kind == TileKind.Sorter
-               || kind == TileKind.Cutter || kind == TileKind.Mortar;
+               || kind == TileKind.Cutter || kind == TileKind.Mortar || kind == TileKind.Wall;
 
         /// <summary>
         /// True for the tiles a belt can hand an item to: anything solid. Bare ground and a shape

@@ -30,9 +30,14 @@ namespace Facet.Tests
         }
 
         /// <summary>Another target walking in: Spikes die to two shots, so a firing-rate test keeps
-        /// the range stocked rather than watching one corpse.</summary>
+        /// the range stocked rather than watching one corpse.
+        ///
+        /// It walks in south-east of the Core, out of the turret's own reach: a machine is solid and
+        /// attackable now, and a target spawned on the turret's lane (1.0 away) stops and chews the
+        /// 80-hp gun instead of being shot - which measures a dead turret, not a fire rate. From here
+        /// the walk to the Core stays 3+ tiles from the turret, inside its 7-tile range.</summary>
         private static void SpawnFreshSpike(SimWorld world)
-            => world.Enemies.Spawn(EnemyKind.Spike, new Vec2(13.5f, 10.5f));
+            => world.Enemies.Spawn(EnemyKind.Spike, new Vec2(13.5f, 7.5f));
 
         private static void TopUp(SimWorld world, ShapeType shape, int ticks, params Int2[] cells)
         {

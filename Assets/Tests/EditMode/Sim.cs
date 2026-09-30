@@ -86,10 +86,12 @@ namespace Facet.Tests
         /// The reference map-1 defence, shared by every test that fights the wave: a drill on the
         /// east patch at (62,23) pushing west, fifteen belts to a decomposer at (46,23), two more
         /// belts to a pipe at (43,23) that jumps whatever sits at (43,22) - bare ground here, the
-        /// economy line when both are built - then south and west to a cannon at (38,18) covering
+        /// economy line when both are built - then south and west to a cannon at (37,18) covering
         /// the Core's southern corner, inside range of both the southern approach and the western
-        /// flank the wave ends with. The build costs 76 circles against the map's 80, so it is a
-        /// build a player can actually afford.
+        /// flank the wave ends with. The cannon sits three tiles off the south lane on purpose: a
+        /// machine two tiles off is inside a Spike's notice range, and the wave would charge it
+        /// instead of walking into its fire. The build costs 77 circles against the map's 80, so it
+        /// is a build a player can actually afford.
         /// <paramref name="trunk"/> is a cell in the middle of the input run - the one a jam goes in.
         /// </summary>
         public static void BuildMapOneDefence(SimWorld world, out Int2 trunk, out Int2 cannon)
@@ -104,9 +106,9 @@ namespace Facet.Tests
             Place(world, BuildKind.Pipe, new Int2(43, 23), Dir.South);   // over (43,22), to (43,21)
             LayRun(world, new Int2(43, 21), Dir.South, 3);      // (43,21) .. (43,19)
             LayRun(world, new Int2(43, 18), Dir.West, 1);       // the corner
-            LayRun(world, new Int2(42, 18), Dir.West, 4);       // (42,18) .. (39,18), pointing in
+            LayRun(world, new Int2(42, 18), Dir.West, 5);       // (42,18) .. (38,18), pointing in
 
-            cannon = new Int2(38, 18);
+            cannon = new Int2(37, 18);
             Place(world, BuildKind.Cannon, cannon, Dir.West);
         }
 

@@ -15,7 +15,7 @@ namespace Facet.Core
         public Vec2 PreviousPosition;
         public float AttackCooldown;
 
-        /// <summary>True once it has reached the Core and started hitting it.</summary>
+        /// <summary>True once it has stopped to hit something - the Core, or a machine in reach.</summary>
         public bool Attacking;
     }
 
@@ -32,14 +32,21 @@ namespace Facet.Core
     }
 
     /// <summary>
-    /// Every enemy on the map, plus the two things that happen to them: walking at the Core and being
-    /// shot.
+    /// Every enemy on the map, plus the three things that happen to them: walking at the Core, being
+    /// shot, and stopping to tear down whatever machine stands in the way.
     ///
-    /// They walk in a straight line and **ignore buildings entirely**. That is a deliberate ruling,
-    /// not a missing feature: damage has to stay the only defence. It was argued on the grounds that
-    /// buildings were free - a wall of belts would have been a wall - and although a belt cell now
-    /// costs a circle, the ruling stands until someone puts it on a later map with real build costs
-    /// to test. Enemies therefore walk over the layout.
+    /// <b>Machines block and are attackable; belts are walked over.</b> An enemy walks the
+    /// <see cref="PathField"/>'s flow toward the Core - around machines, not through them - but stops
+    /// the moment an attackable machine is within <see cref="EnemyDef.AggroRange"/>, and charges one it
+    /// notices within <see cref="EnemyDef.DetectionRange"/>: aggressive targeting, not just obstacle
+    /// avoidance, so a building beside the path is a target rather than scenery. When the flow has no
+    /// direction for a cell (the Core is sealed in), it walks straight at the Core and chews through
+    /// whatever blocks the way; a standing enemy is always within its own reach of the blocker it is
+    /// pressed against, so the siege resolves itself. Belts are walkable and unattackable,
+    /// deliberately: a belt is a flat conveyor, and the 1-cost cell must not become the cheapest wall.
+    ///
+    /// The Core's rules are untouched: reaching the attack ring stops an enemy and drains
+    /// <see cref="CoreState.Hp"/> at its own damage and interval.
     /// </summary>
     public sealed class EnemyField
     {
@@ -60,6 +67,10 @@ namespace Facet.Core
         /// nothing reads it back, so it cannot affect a run's outcome.</summary>
         private readonly SimEventBuffer _events;
 
+        private readonly TileGrid _grid;
+        private readonly MachineField _machines;
+        private readonly PathField _paths;
+
         /// <summary>Id -> slot. Only ever used for lookup, never enumerated, so it cannot leak order
         /// into the simulation the way an enumerated dictionary would.</summary>
         private readonly Dictionary<int, int> _slotById = new Dictionary<int, int>();
@@ -70,10 +81,14 @@ namespace Facet.Core
         /// so this is the wave's remaining work, not a slot count.</summary>
         public int AliveCount => _count;
 
-        public EnemyField(ContentDatabase content, SimEventBuffer events, int capacity = 64)
+        public EnemyField(ContentDatabase content, SimEventBuffer events, TileGrid grid,
+            MachineField machines, PathField paths, int capacity = 64)
         {
             _content = content ?? throw new ArgumentNullException(nameof(content));
             _events = events ?? throw new ArgumentNullException(nameof(events));
+            _grid = grid ?? throw new ArgumentNullException(nameof(grid));
+            _machines = machines ?? throw new ArgumentNullException(nameof(machines));
+            _paths = paths ?? throw new ArgumentNullException(nameof(paths));
             _enemies = new EnemyState[Math.Max(8, capacity)];
         }
 
@@ -110,7 +125,11 @@ namespace Facet.Core
             return id;
         }
 
-        /// <summary>Advance every enemy: walk toward the Core, or hit it once there.</summary>
+        /// <summary>
+        /// Advance every enemy, in this order each: hold at the Core's ring and hit it; stop and hit an
+        /// attackable machine in reach; walk one step along the flow field toward the Core; or, when the
+        /// flow has no direction, walk straight at the Core and hit whatever blocks the way.
+        /// </summary>
         public void Step(float dt, ref CoreState core)
         {
             Vec2 centre = core.Center;
@@ -123,30 +142,98 @@ namespace Facet.Core
                 e.PreviousPosition = e.Position;
 
                 EnemyDef spec = _content.Enemy(e.Kind);
-                Vec2 toCore = centre - e.Position;
-                float distance = toCore.Magnitude;
+                float distance = (centre - e.Position).Magnitude;
 
-                if (distance > stopAt)
+                // 1. The Core, first: an enemy inside the ring hits it even if a machine is also in
+                // reach, so a defence built right on the Core cannot distract an enemy from losing the
+                // run. Unchanged from the straight-line days, including the exact landing on the ring.
+                if (distance <= stopAt)
                 {
-                    float step = spec.Speed * dt;
-                    // Land exactly on the attack ring instead of stepping through it, so every enemy
-                    // hits the Core from the same distance and the damage rate stays legible.
-                    e.Position = distance - step <= stopAt
-                        ? centre - toCore * (reach / distance)
-                        : e.Position + toCore * (step / distance);
-                    e.Attacking = false;
+                    e.Attacking = true;
+                    e.AttackCooldown -= dt;
+                    if (e.AttackCooldown <= 0f)
+                    {
+                        core.Hp = MathF.Max(0f, core.Hp - spec.Damage);
+                        e.AttackCooldown += spec.AttackInterval;
+                        _events.CoreDamaged(spec.Damage);
+                    }
                     continue;
                 }
 
-                e.Attacking = true;
-                e.AttackCooldown -= dt;
-                if (e.AttackCooldown <= 0f)
+                // 2. Machines, nearest first: inside the attack reach it stops and hits the machine;
+                // between the reach and the notice range it charges it - leaving its path and heading
+                // for the building, which is what stops a machine two tiles off the lane from being
+                // furniture. One scan covers both, because the nearest machine within either radius is
+                // the one in reach whenever anything is: nothing can be closer than the nearest. The
+                // same cooldown covers the Core and every machine, so the damage rate is the enemy's
+                // rate whatever it is hitting.
+                float notice = MathF.Max(spec.AggroRange, spec.DetectionRange);
+                if (_machines.TryFindNearest(e.Position, notice, out Int2 target))
                 {
-                    core.Hp = MathF.Max(0f, core.Hp - spec.CoreDamage);
-                    e.AttackCooldown += spec.AttackInterval;
-                    _events.CoreDamaged(spec.CoreDamage);
+                    float gap = (_grid.CellCenter(target) - e.Position).Magnitude;
+                    if (gap <= spec.AggroRange)
+                    {
+                        e.Attacking = true;
+                        e.AttackCooldown -= dt;
+                        if (e.AttackCooldown <= 0f)
+                        {
+                            _machines.DamageAt(target, spec.Damage);
+                            e.AttackCooldown += spec.AttackInterval;
+                        }
+                        continue;
+                    }
+
+                    e.Attacking = false;
+                    e.Position = Advance(e.Position, _grid.CellCenter(target), spec.Speed * dt);
+                    continue;
                 }
+
+                e.Attacking = false;
+                float step = spec.Speed * dt;
+
+                // 3. The flow field: steer at the centre of the next cell on the way to the Core, and
+                // land exactly on it rather than stepping past it - overshooting would oscillate around
+                // the centre the way it would around the Core's ring.
+                Int2 cell = _grid.CellAt(e.Position);
+                if (_paths.TryDirection(cell, out Dir dir))
+                {
+                    e.Position = Advance(e.Position, _grid.CellCenter(cell + dir.Offset()), step);
+                    continue;
+                }
+
+                // 4. Sealed out: no way from here, so walk straight at the Core like an enemy always
+                // used to - but never into a solid cell. A standing enemy is always within its own reach
+                // of the blocker (1.6 >= sqrt 2), so step 2 chews it down next tick.
+                e.Position = Advance(e.Position, centre, step);
             }
+        }
+
+        /// <summary>May a walker enter this cell? Ground, ore, belts and the Core are open; a machine
+        /// is a wall whether or not it happens to have HP left.</summary>
+        private bool Open(Int2 cell) => _grid.InBounds(cell) && !_grid.Get(cell).IsMachine();
+
+        /// <summary>
+        /// Walk one step from <paramref name="from"/> toward <paramref name="to"/>, landing exactly on it
+        /// when the step reaches it - and never into a solid cell: a blocked step slides along one axis,
+        /// then the other, and stands still if both are closed. That guard is what presses a charging
+        /// enemy against the machine it is headed for instead of through it, and it is the same guard
+        /// that keeps the siege honest.
+        /// </summary>
+        private Vec2 Advance(Vec2 from, Vec2 to, float step)
+        {
+            Vec2 delta = to - from;
+            float distance = delta.Magnitude;
+            Vec2 wish = distance <= step || distance <= 0f ? to : from + delta * (step / distance);
+
+            if (Open(_grid.CellAt(wish))) return wish;
+
+            var slideX = new Vec2(wish.X, from.Y);
+            if (Open(_grid.CellAt(slideX))) return slideX;
+
+            var slideY = new Vec2(from.X, wish.Y);
+            if (Open(_grid.CellAt(slideY))) return slideY;
+
+            return from;
         }
 
         /// <summary>

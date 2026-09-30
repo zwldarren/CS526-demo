@@ -148,6 +148,15 @@ namespace Facet.Tests
             Assert.AreEqual(12, Balance.Cost(BuildKind.Sorter));
             Assert.AreEqual(15, Balance.Cost(BuildKind.Cutter));
             Assert.AreEqual(30, Balance.Cost(BuildKind.Mortar));
+            Assert.AreEqual(2, Balance.Cost(BuildKind.Wall));
+
+            // Health is content now: the wall is the pool the siege is balanced against (120 hp is
+            // twenty seconds of chewing for one Spike), and the belt's 0 is what says it is walkable
+            // and untouchable rather than a machine with no health.
+            Assert.AreEqual(120f, Content.Machine(BuildKind.Wall).MaxHp, Sim.Tol);
+            Assert.AreEqual(80f, Content.Machine(BuildKind.Cannon).MaxHp, Sim.Tol);
+            Assert.AreEqual(0f, Content.Machine(BuildKind.Belt).MaxHp, Sim.Tol,
+                "a belt is not a machine and has no health to chew");
 
             TurretDef cannon = Balance.Turret(BuildKind.Cannon);
             Assert.AreEqual(ShapeType.HalfCircle, cannon.Ammo);
@@ -168,8 +177,10 @@ namespace Facet.Tests
             EnemyDef spike = Balance.Enemy(EnemyKind.Spike);
             Assert.AreEqual(6f, spike.Hp, Sim.Tol);
             Assert.AreEqual(1.5f, spike.Speed, Sim.Tol);
-            Assert.AreEqual(6f, spike.CoreDamage, Sim.Tol);
+            Assert.AreEqual(6f, spike.Damage, Sim.Tol);
             Assert.AreEqual(ShapeType.HalfCircle, spike.Weakness);
+            Assert.AreEqual(1.6f, spike.AggroRange, Sim.Tol, "the aggressive scan's reach");
+            Assert.AreEqual(2.5f, spike.DetectionRange, Sim.Tol, "and the range it charges from");
         }
 
         [Test]
@@ -218,7 +229,7 @@ namespace Facet.Tests
             var enemies = new[]
             {
                 new EnemyDef(new ContentId("spike"), EnemyKind.Spike, "Brute", hp: 40f, speed: 1f,
-                    coreDamage: 20f, attackInterval: 2f, weakness: ShapeType.Circle),
+                    damage: 20f, attackInterval: 2f, weakness: ShapeType.Circle),
             };
             var shapes = new[] { new ShapeDef(ShapeType.Circle, "circle", "Circle", "○") };
             var recipes = new RecipeDef[0];

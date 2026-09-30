@@ -52,6 +52,13 @@ namespace Facet.Core
 
         /// <summary>The Core fell.</summary>
         RunLost = 12,
+
+        /// <summary>An enemy hit a building. <c>Cell</c> is the building's, <c>Amount</c> the damage,
+        /// <c>Building</c> which building it was.</summary>
+        BuildingDamaged = 13,
+
+        /// <summary>A building was destroyed by enemies. <c>Cell</c> is where it stood.</summary>
+        BuildingDestroyed = 14,
     }
 
     /// <summary>
@@ -83,11 +90,17 @@ namespace Facet.Core
         public readonly EnemyKind Enemy;
         public readonly ShapeType Shape;
 
+        /// <summary>The building involved, for the events that are about one
+        /// (<see cref="SimEventKind.BuildingDamaged"/>, <see cref="SimEventKind.BuildingDestroyed"/>).
+        /// <see cref="BuildKind.Belt"/> - the default - when no building is involved, which is also
+        /// what a damaged building reports; the event's <see cref="Cell"/> says which one it was.</summary>
+        public readonly BuildKind Building;
+
         /// <summary>The event's number: a cost, a refund, a damage, a wave number.</summary>
         public readonly float Amount;
 
         internal SimEvent(SimEventKind kind, int tick, Int2 cell, Vec2 position, int enemyId,
-            EnemyKind enemy, ShapeType shape, float amount)
+            EnemyKind enemy, ShapeType shape, float amount, BuildKind building = default)
         {
             Kind = kind;
             Tick = tick;
@@ -97,6 +110,7 @@ namespace Facet.Core
             Enemy = enemy;
             Shape = shape;
             Amount = amount;
+            Building = building;
         }
 
         public override string ToString()
@@ -225,11 +239,19 @@ namespace Facet.Core
         public void RunEnded(bool won)
             => Push(won ? SimEventKind.RunWon : SimEventKind.RunLost);
 
+        /// <summary>An enemy hit a building. Cell is the building's, Amount the damage.</summary>
+        public void BuildingDamaged(Int2 cell, BuildKind building, float damage)
+            => Push(SimEventKind.BuildingDamaged, cell: cell, amount: damage, building: building);
+
+        /// <summary>A building was destroyed by enemies. Cell is where it stood.</summary>
+        public void BuildingDestroyed(Int2 cell, BuildKind building)
+            => Push(SimEventKind.BuildingDestroyed, cell: cell, building: building);
+
         private void Push(SimEventKind kind, Int2 cell = default, float amount = 0f,
             Vec2 position = default, int enemyId = 0, EnemyKind enemy = default,
-            ShapeType shape = ShapeType.None)
+            ShapeType shape = ShapeType.None, BuildKind building = default)
         {
-            var e = new SimEvent(kind, Tick, cell, position, enemyId, enemy, shape, amount);
+            var e = new SimEvent(kind, Tick, cell, position, enemyId, enemy, shape, amount, building);
 
             if (_count < _events.Length)
             {

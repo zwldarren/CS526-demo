@@ -312,6 +312,10 @@ namespace Facet.Game
             [Tooltip("Splitter: port stub half width, matched to the belt strip.")]
             public float SplitterStubHalfWidth = 0.17f;
 
+            [Tooltip("Wall: inset from the tile edge, in tiles. A wall is a plain block, a touch smaller " +
+                "than its cell so the grid still reads between two of them.")]
+            public float WallInset = 0.1f;
+
             [Tooltip("Sorter: radius of the triangle whose apex points out the side the filtered shape " +
                 "leaves by. The apex is the direction readout - a sorter needs no chevron, and no other " +
                 "building is a triangle, so the silhouette says 'router' on its own.")]

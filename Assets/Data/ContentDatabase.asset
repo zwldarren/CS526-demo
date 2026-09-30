@@ -157,6 +157,6 @@ MonoBehaviour:
     Name: Spike
     Hp: 6
     Speed: 1.5
-    CoreDamage: 6
+    Damage: 6
     AttackInterval: 1
     Weakness: 2
