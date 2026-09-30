@@ -42,6 +42,7 @@ namespace Facet.Game
         // stays proportional instead of the text growing inside a fixed box.
         private const float StatusWidth = 470f;
         private const float StatusHeight = 252f;
+        private const float TutorialHeight = 112f;
         private const float ControlsWidth = 210f;
         private const float ControlsHeight = 100f;
         private const float InfoWidth = 392f;
@@ -126,6 +127,15 @@ namespace Facet.Game
             float s = _stylesScale;
 
             var status = new Rect(Margin * s, Margin * s, StatusWidth * s, StatusHeight * s);
+
+            bool showTutorial = _campaign != null && _campaign.MapIndex == 0;
+
+var tutorial = new Rect(
+    status.x,
+    status.yMax + 8f * s,
+    StatusWidth * s,
+    TutorialHeight * s);
+
             var controls = new Rect(Screen.width - Margin * s - ControlsWidth * s, Margin * s,
                 ControlsWidth * s, ControlsHeight * s);
             var bar = new Rect(Margin * s, Screen.height - Margin * s - BarHeight * s,
@@ -138,9 +148,21 @@ namespace Facet.Game
             // this describes the panel under the pointer as of the previous frame - a frame of lag on a
             // pointer that has to travel to the button anyway. The banner is left out on purpose: it has
             // nothing to click, and while it is up (paused, or the run is over) the world is not ticking.
-            PointerOverHud = PointerOver(status) || PointerOver(controls) || PointerOver(bar) || PointerOver(info);
+            PointerOverHud =
+    PointerOver(status) ||
+    PointerOver(controls) ||
+    PointerOver(bar) ||
+    PointerOver(info) ||
+    (showTutorial && PointerOver(tutorial));
+
 
             DrawStatus(status, s);
+
+            if (showTutorial)
+{
+    DrawTutorial(tutorial, s);
+}
+
             DrawControls(controls, s);
 
             // The bar runs first so it can record which tile is under the pointer; the info card reads
@@ -153,6 +175,31 @@ namespace Facet.Game
 
         // ------------------------------------------------------------------ status
 
+
+private void DrawTutorial(Rect panel, float s)
+{
+    Panel(panel);
+    Fill(new Rect(panel.x, panel.y, 3f * s, panel.height), _palette.HudAccent);
+
+    Rect line = new Rect(
+        panel.x + 14f * s,
+        panel.y + 10f * s,
+        panel.width - 28f * s,
+        22f * s);
+
+    Label(line, "HOW TO PLAY", _palette.HudAccent, _title);
+
+    line.y += 28f * s;
+    line.height = 70f * s;
+
+    Label(
+        line,
+        "1. Mine circle ore and carry it back to the Core using conveyor belts.\n" +
+        "2. Ore can only be spent after it reaches the Core.\n" +
+        "3. The wrong shape will jam a line. Right-click the jammed segment to clear it.",
+        _palette.HudText,
+        _wrap);
+}
         private void DrawStatus(Rect panel, float s)
         {
             Panel(panel);
