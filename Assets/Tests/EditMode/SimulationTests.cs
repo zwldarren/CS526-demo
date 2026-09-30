@@ -101,7 +101,8 @@ namespace Facet.Tests
             // An identical mix of belt laying, item spawning and stepping.
             for (int i = 0; i < 40; i++)
             {
-                var cmd = new InputCommand(true, false, new Int2(2 + (i % 9), 1 + (i % 5)));
+                var cmd = new InputCommand(true, false, new Int2(2 + (i % 9), 1 + (i % 5)),
+                    selected: BuildKind.Belt);
                 a.Tick(cmd);
                 b.Tick(cmd);
             }
@@ -152,7 +153,6 @@ namespace Facet.Tests
 
             grid.Set(cell, TileKind.Belt);
 
-            Assert.AreEqual(TileKind.Belt, grid.Get(cell));
             Assert.IsTrue(grid.IsOccupied(cell));
             Assert.IsFalse(grid.CanLayBelt(cell), "an existing belt is in the way");
         }

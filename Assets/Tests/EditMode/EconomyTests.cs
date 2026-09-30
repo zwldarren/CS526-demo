@@ -49,7 +49,7 @@ namespace Facet.Tests
 
             // The ghost reads both halves of the answer: legal ground, no money.
             Assert.IsTrue(world.CanPlace(BuildKind.Belt, new Int2(4, 1)), "the cell itself is fine");
-            Assert.IsFalse(world.CanAffordPlace(BuildKind.Belt, new Int2(4, 1)), "the stockpile is not");
+            Assert.IsFalse(world.Economy.CanAfford(BuildKind.Belt), "the stockpile is not");
             Assert.IsFalse(world.Economy.CanAfford(BuildKind.Cannon), "let alone a cannon");
         }
 

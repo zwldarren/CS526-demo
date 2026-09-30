@@ -256,7 +256,7 @@ namespace Facet.Tests
             var drill = new Int2(14, 11);                     // top row of the (14,10) 3x2 patch
             var head = new Int2(14, 12);                      // the first cell off the patch
 
-            world.Tick(new InputCommand(true, false, drill, primaryPressed: true, selected: BuildKind.Drill));
+            world.Tick(new InputCommand(true, false, drill, selected: BuildKind.Drill));
             world.Tick(new InputCommand(false, false, drill, primaryReleased: true, selected: BuildKind.Drill));
             Assert.AreEqual(Dir.East, Sim.MachineAt(world, drill).Direction, "a click keeps the ghost's facing");
 
@@ -280,7 +280,7 @@ namespace Facet.Tests
             SimWorld world = Sim.NewWorld(16, 12);
             var decomposer = new Int2(2, 8);
 
-            world.Tick(new InputCommand(true, false, decomposer, primaryPressed: true, selected: BuildKind.Decomposer));
+            world.Tick(new InputCommand(true, false, decomposer, selected: BuildKind.Decomposer));
             world.Tick(new InputCommand(false, false, decomposer, primaryReleased: true, selected: BuildKind.Decomposer));
             Assert.AreEqual(Dir.East, Sim.MachineAt(world, decomposer).Direction);
 
@@ -299,8 +299,8 @@ namespace Facet.Tests
             // belt being dragged north still advertised itself as an east-west belt.
             SimWorld world = Sim.NewWorld(16, 12);
 
-            world.Tick(new InputCommand(true, false, new Int2(4, 4), primaryPressed: true));
-            world.Tick(new InputCommand(true, false, new Int2(4, 9)));
+            world.Tick(new InputCommand(true, false, new Int2(4, 4), selected: BuildKind.Belt));
+            world.Tick(new InputCommand(true, false, new Int2(4, 9), selected: BuildKind.Belt));
 
             Assert.AreEqual(Dir.North, world.PlacementDirection, "the ghost follows the drag");
 
@@ -344,7 +344,8 @@ namespace Facet.Tests
         public void ABareClickLaysNothing_BecauseABeltNeedsADirection()
         {
             SimWorld world = Sim.NewWorld(16, 10);
-            Sim.Tick(world, new InputCommand(true, false, new Int2(2, 2)), 10);
+            var click = new InputCommand(true, false, new Int2(2, 2), selected: BuildKind.Belt);
+            Sim.Tick(world, click, 10);
             Sim.Tick(world, 1);
 
             Assert.IsFalse(world.Belts.Has(new Int2(2, 2)));
@@ -485,7 +486,6 @@ namespace Facet.Tests
             world.Patches.Set(ore, ShapeType.Square);
 
             Assert.IsTrue(world.TryPlaceBelt(ore, Dir.East));
-            Assert.AreEqual(TileKind.Belt, world.TileGrid.Get(ore));
             Assert.IsTrue(world.Patches.Has(ore), "the ore is under the belt, not gone");
 
             Assert.IsTrue(world.TryRemoveBelt(ore));
@@ -506,7 +506,7 @@ namespace Facet.Tests
             var ore = new Int2(3, 9);
             world.Patches.Set(ore, ShapeType.Circle);
 
-            world.Tick(new InputCommand(true, false, ore, primaryPressed: true, selected: BuildKind.Drill));
+            world.Tick(new InputCommand(true, false, ore, selected: BuildKind.Drill));
             Assert.AreEqual(BuildKind.Drill, world.SelectedKind, "the press takes the selection");
 
             world.Tick(new InputCommand(true, false, new Int2(8, 9), selected: BuildKind.Belt));

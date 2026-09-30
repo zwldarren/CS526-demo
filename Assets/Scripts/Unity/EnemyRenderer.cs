@@ -211,7 +211,7 @@ namespace Facet.Game
         }
 
         /// <summary>
-        /// The four wave entry points, each as a hollow frame built from one alpha value this frame.
+        /// The wave entry points, each as a hollow frame built from one alpha value this frame.
         /// While a wave runs the frames sit at a steady faint alpha; during an intermission they
         /// pulse with the countdown so the map itself says "something is coming". The points the
         /// NEXT wave uses additionally get a solid inner quad, which is the wave preview drawn
@@ -241,7 +241,12 @@ namespace Facet.Game
             WaveDefinition next = waves.NextWaveDefinition;
             if (next != null)
                 for (int g = 0; g < next.Groups.Length; g++)
-                    _nextWaveSpawns[next.Groups[g].SpawnPoint % _nextWaveSpawns.Length] = true;
+                {
+                    // The map resolves a table's door index onto its own entry points, so the marker
+                    // that lights up and the tile the enemies actually enter at are the same answer.
+                    int at = World.Map.ResolveSpawn(next.Groups[g].SpawnPoint);
+                    if (at >= 0) _nextWaveSpawns[at] = true;
+                }
 
             Color frame = Colors.SpawnMarker;
             frame.a = frameAlpha;

@@ -169,6 +169,31 @@ namespace Facet.Tests
             Assert.IsTrue(world.CanPlace(BuildKind.Drill, square), "a drill belongs on it");
         }
 
+        [Test]
+        public void WaveSpawnIndices_WrapOntoTheMapsEntryPoints()
+        {
+            // A wave table names its door by position in the map's spawn list, and the index wraps so a
+            // table stays loadable by a map with fewer doors instead of indexing off the end of the
+            // entry points - and off the end of the marker list the view sizes from them.
+            var map = new MapDefinition("two doors", 8, 8, 10, new ShapePatch[0],
+                new[] { new Int2(0, 0), new Int2(7, 0) },
+                new[] { new WaveDefinition(0f, new SpawnGroup(EnemyKind.Spike, 1, 3, 0f, 1f)) });
+
+            Assert.AreEqual(0, map.ResolveSpawn(0), "the first door");
+            Assert.AreEqual(1, map.ResolveSpawn(1), "the second");
+            Assert.AreEqual(0, map.ResolveSpawn(2), "and a third wraps back to the first");
+            Assert.AreEqual(1, map.ResolveSpawn(3), "which is what the table's own index resolves to");
+
+            Assert.AreEqual(0, map.SpawnIndexOf(new Int2(0, 0)), "a cell reads back as its door");
+            Assert.AreEqual(1, map.SpawnIndexOf(new Int2(7, 0)));
+            Assert.AreEqual(-1, map.SpawnIndexOf(new Int2(4, 4)), "and bare ground is no door at all");
+
+            var doorless = new MapDefinition("no doors", 8, 8, 10, new ShapePatch[0], new Int2[0],
+                new WaveDefinition[0]);
+            Assert.AreEqual(-1, doorless.ResolveSpawn(0), "a map with no doors resolves none");
+            Assert.AreEqual(-1, map.ResolveSpawn(-1), "and a negative position is not a door either");
+        }
+
         private static Int2 FirstPatchOf(MapDefinition map, ShapeType shape)
         {
             foreach (ShapePatch patch in map.Patches)

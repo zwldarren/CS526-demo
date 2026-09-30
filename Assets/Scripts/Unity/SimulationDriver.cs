@@ -60,8 +60,6 @@ namespace Facet.Game
         /// <summary>Tile under the cursor as of the last poll, or (-1,-1) when there is no cursor.</summary>
         public Int2 CursorCell { get; private set; }
 
-        public GridRenderer GridView { get; private set; }
-
         /// <summary>The frame every view is drawing right now. The driver is the only writer.</summary>
         public FrameClock Frames { get; private set; }
 
@@ -133,6 +131,17 @@ namespace Facet.Game
 
         private void Update()
         {
+            // Unity can call Update on an instance whose Awake never completed: a script reload during
+            // play restores the scene - the one that happens when the Editor's "Reload Domain" is off
+            // and the sources change under a running game - without re-awaking what it restores. There
+            // is nothing to advance then: the driver stands down rather than throwing once per frame,
+            // and its Awake's own bail (no camera) has already done the same.
+            if (_input == null)
+            {
+                enabled = false;
+                return;
+            }
+
             UpdateWorldPerPixel();
 
             if (_input.ConsumePauseToggle())
@@ -236,7 +245,7 @@ namespace Facet.Game
 
         private void BuildViews()
         {
-            GridView = AddMeshView<GridRenderer>("Grid");
+            AddMeshView<GridRenderer>("Grid");
             AddMeshView<ShapePatchRenderer>("Patches");
             AddMeshView<BeltRenderer>("Belts");
             AddMeshView<CoreView>("Core");
@@ -273,7 +282,7 @@ namespace Facet.Game
 
         private void OnDrawGizmosSelected()
         {
-            int index = Application.isPlaying ? Campaign.MapIndex : startMapIndex;
+            int index = Application.isPlaying && Campaign != null ? Campaign.MapIndex : startMapIndex;
             MapDefinition map = Maps.All[Mathf.Clamp(index, 0, Maps.All.Length - 1)];
 
             Gizmos.color = new Color(1f, 1f, 1f, 0.25f);

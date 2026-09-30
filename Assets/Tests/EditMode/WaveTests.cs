@@ -260,7 +260,7 @@ namespace Facet.Tests
             Assert.AreEqual(1, world.Waves.NextWave, "the next wave is the first wave again");
             Assert.IsTrue(world.Waves.FirstWaveHeld, "which is held for the player once more");
             Assert.AreEqual(0f, world.Waves.IntermissionRemaining, Sim.Tol, "with no countdown left to run");
-            Assert.AreEqual(BuildKind.Belt, world.SelectedKind, "and the build selection is back to belts");
+            Assert.IsNull(world.SelectedKind, "and nothing is selected again - the cursor reads the map");
         }
 
         [Test]

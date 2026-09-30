@@ -53,12 +53,37 @@ namespace Facet.Core
             Waves = waves;
         }
 
-        /// <summary>Centre of a spawn point in world units, where enemies are created.</summary>
+        /// <summary>Centre of a spawn point in world units, where enemies are created. The index is the
+        /// wave table's, resolved by <see cref="ResolveSpawn"/> like every other reader of it, so the
+        /// tile the enemies enter at is the tile the marker lights and the info card names.</summary>
         public Vec2 SpawnCenter(int index)
         {
-            Int2 cell = SpawnPoints[index % SpawnPoints.Length];
+            Int2 cell = SpawnPoints[ResolveSpawn(index)];
             return new Vec2(cell.X + 0.5f, cell.Y + 0.5f);
         }
+
+        /// <summary>
+        /// Where this cell sits in <see cref="SpawnPoints"/>, or -1 for a tile no wave enters at. The one
+        /// answer to "is this an entry point", so the cursor that marks the tile and the map data that
+        /// names the door cannot disagree.
+        /// </summary>
+        public int SpawnIndexOf(Int2 cell)
+        {
+            for (int i = 0; i < SpawnPoints.Length; i++)
+                if (SpawnPoints[i] == cell) return i;
+
+            return -1;
+        }
+
+        /// <summary>
+        /// The entry point a wave group's <see cref="SpawnGroup.SpawnPoint"/> names, or -1 when this map
+        /// has no entry point to name - or the table named a negative position, which is not a door.
+        ///
+        /// The index wraps, because a wave table names its door by *position*: a table authored against
+        /// one map's list stays loadable by a map with fewer doors instead of indexing off the end.
+        /// </summary>
+        public int ResolveSpawn(int spawnPoint)
+            => spawnPoint < 0 || SpawnPoints.Length == 0 ? -1 : spawnPoint % SpawnPoints.Length;
     }
 
     /// <summary>

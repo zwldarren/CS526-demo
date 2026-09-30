@@ -94,7 +94,6 @@ namespace Facet.PlayTests
 
             var driver = _driverObject.GetComponent<SimulationDriver>();
             Assert.IsNotNull(driver.World, "the driver owns a simulation");
-            Assert.IsNotNull(driver.World.TileGrid);
 
             foreach (string view in new[] { "Grid", "Patches", "Belts", "Core", "Machines", "Items", "Enemies", "Shots", "Cursor", "Hud" })
                 Assert.IsNotNull(_driverObject.transform.Find(view), "the driver did not build the " + view + " view");

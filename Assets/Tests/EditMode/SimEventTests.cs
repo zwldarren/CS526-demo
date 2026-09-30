@@ -26,14 +26,16 @@ namespace Facet.Tests
             Assert.AreEqual(1, world.Events.Count);
             Assert.AreEqual(SimEventKind.Built, world.Events[0].Kind);
             Assert.AreEqual(new Int2(2, 2), world.Events[0].Cell);
-            Assert.AreEqual(10f, world.Events[0].Amount, Sim.Tol, "the splitter's cost, reported");
+            Assert.AreEqual(world.Economy.CostOf(BuildKind.Splitter), world.Events[0].Amount, Sim.Tol,
+                "the splitter's cost, reported");
 
             world.Events.Clear();
             Assert.IsTrue(world.TryRemoveBuilding(new Int2(2, 2)));
 
             Assert.AreEqual(1, world.Events.Count);
             Assert.AreEqual(SimEventKind.Removed, world.Events[0].Kind);
-            Assert.AreEqual(10f, world.Events[0].Amount, Sim.Tol, "the full refund, reported");
+            Assert.AreEqual(world.Economy.CostOf(BuildKind.Splitter), world.Events[0].Amount, Sim.Tol,
+                "the full refund, reported");
         }
 
         [Test]
@@ -208,7 +210,8 @@ namespace Facet.Tests
                     b.TrySpawnItem(new Int2(2, 2), ShapeType.Circle);
                 }
 
-                var cmd = new InputCommand(true, false, new Int2(2 + (i % 9), 1 + (i % 5)));
+                var cmd = new InputCommand(true, false, new Int2(2 + (i % 9), 1 + (i % 5)),
+                    selected: BuildKind.Belt);
                 a.Tick(cmd);
                 b.Tick(cmd);
 

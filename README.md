@@ -19,9 +19,10 @@ shape or recipe is a row plus the enum value that names it, not a `switch` that 
 | `WASD` / arrows | pan the camera |
 | mouse wheel | zoom |
 | **click the build bar** | select a building — the bottom bar is a row of buttons, each showing its hotkey, name, role and cost |
-| `1`–`9` | select the same buildings by hotkey |
+| `1`–`9` | select the same buildings by hotkey — **press the same digit again to drop the selection**, exactly as clicking the same tile twice does |
 | `Q` / `E`, or the info card's **turn** buttons | turn the placement ghost (a splitter and every converter have no facing to turn) |
-| left mouse | place the selected building — **drag** to lay a belt run or to aim a machine |
+| `Esc`, or the info card's **inspect** button | drop the selection: the cursor then only **reads** — the state a run opens in |
+| left mouse | place the selected building — **drag** to lay a belt run or to aim a machine. With nothing selected the same click pins whatever is under it and the info card describes *it* |
 | right mouse | delete what is under the cursor for a full refund; on a jammed segment it **clears the jam** instead |
 | `Space` / `P`, or the **pause** button | pause / resume |
 | `N`, or the status card's **start wave** button | start the next wave now — the first wave only ever arrives this way. Once a map is cleared it carries on to the next map instead |
@@ -33,6 +34,27 @@ top-right, the build bar along the bottom, and an info card above it that descri
 building is hovered or selected - its cost, what it does, its numbers, and the facing its ghost will
 be built with. The bar's tiles are tinted when the stockpile cannot cover them and outlined when
 selected, so the palette doubles as an affordability readout and does not require the number keys.
+
+Nothing has to be selected, though, and the run opens that way: with no building picked the cursor
+does not preview a placement, it reads. A left click pins whatever is under it and the info card
+describes *that* instead of a ghost - its name and coordinates, the sides its belts are actually
+wired to, what it is doing this second (splitting, carrying, holding, starved, jammed, nothing to
+push onto), its numbers, and the facing that means something to it - while the pinned tile stays
+outlined on the map beside a turret's range ring, so the card and the map agree about which building
+"it" is. Reading is not only for what the player built: a vein in the ground reports the mineral it
+yields and how big it is, and a **wave's doorway** reports which waves walk in at it - the two things
+a layout is chosen around, and neither of them a building. Hovering the bar always describes the
+catalogue entry instead, because that is the question a pointer over the palette is asking. `Esc`,
+the **inspect** button in the card, or pressing the selected digit again all drop the selection and
+go back to reading.
+
+The panels are also the camera's pan bound: the map has to cover the screen minus the strips they
+occupy, and may then be pushed a further 5% of the screen past its own edge, so an edge tile comes to
+rest in the open with background behind it instead of against the card that was hiding it. The last
+5% is what makes that visible at the bottom, where the build bar is as wide as the screen and as tall
+as its whole strip and would otherwise leave the map's last row pressed flat against it. `HudLayout`
+holds the panel geometry for both the HUD and `PanLimits`, and `CameraRig`'s **Edge Slack Screens** is
+that 5% - one table, drawn on and obeyed by two views.
 
 ## The rules the prototype is built on
 
@@ -194,7 +216,7 @@ fell behind" rather than guessing.
 
 | Suite | Where | What it covers |
 |---|---|---|
-| EditMode | `Assets/Tests/EditMode` | belts (27), the content table and its Editor carrier (19), production, drills and ore (11), waves and restart (9), the event stream (8), economy and the Core bank (8), turrets/jams (8), the sorter (7), the maps and the campaign (7), the second chain (7), splitters (6), pipes (5), determinism (6), the machine registry and port masks (5), a custom table driving the game (5), visual overrides (7), end-to-end balance (3), build settings (2) - 150 total |
+| EditMode | `Assets/Tests/EditMode` | belts (27), the content table and its Editor carrier (19), production, drills and ore (11), waves and restart (9), the event stream (8), economy and the Core bank (8), turrets/jams (8), the sorter (7), the maps and the campaign (8), the second chain (7), splitters (6), pipes (5), the tick, pause/restart and determinism (8), the inspect cursor (9), the machine registry and port masks (5), a custom table driving the game (5), visual overrides (7), end-to-end balance (3), build settings (2), the camera's pan bound (5) - 167 total |
 | PlayMode smoke | `Assets/Tests/PlayMode` | the shipped scene boots with its Palette and content asset wired, the driver builds every view, advances the world across frames, and draws real geometry for what is on the map; a Sprite override reaches the view; a kill leaves a burst that then fades; clearing a map loads the next one under the same views - 9 total |
 
 ```bash
@@ -227,7 +249,7 @@ Assets/Scripts/Core        engine-free simulation (no UnityEngine reference)
   EnemyField               walks at the Core, or hits it; damage is the shape's business
   ProjectileField          shots in flight, so the shape that killed something is visible
   WaveDirector             the map's waves: the first held for the player, the countdowns after it, and what counts as a cleared wave
-  BuildController          selection, drag-to-lay, machine aiming, jam-clearing delete, and the bill
+  BuildController          selection, the read pin, drag-to-lay, machine aiming, jam-clearing delete, and the bill
   EconomyState             the stockpile: spend, refund, bank (costs come from the content table)
   Balance                  the global rules (core reach, projectile hit radius/lifetime) and a facade over the shipped table
   SimWorld                 the tick order and the run's state
@@ -235,5 +257,7 @@ Assets/Scripts/Unity       view layer (one renderer per concern, one mesh each, 
   Palette                  the whole look, including per-content Sprite/procedural overrides (VisualCatalog)
   VisualCatalog            the override types: VisualStyle, the kind-keyed per-content catalogs, and the shape helpers
   ContentDatabaseAsset     the Editor carrier for the content table; ToCore() converts it to the engine-free one
+  HudLayout, PanLimits     where the HUD's panels sit, and the pan bound that implies: the map has to cover
+                           the screen minus the strips they own, so no tile is stuck behind a panel
 Assets/Scripts/Editor      the WebGL build tool and the content-asset creator
 ```

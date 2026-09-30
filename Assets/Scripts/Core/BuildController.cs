@@ -3,26 +3,21 @@ using System;
 namespace Facet.Core
 {
     /// <summary>
-    /// All the build-mode input state: which building is selected, which way the ghost faces, and the
-    /// press/drag state machine that decides *where* things land. It lives in the simulation rather
-    /// than in the view because placement is a rule (a drill only on a patch, a belt needs a direction)
-    /// and rules belong with the state they change; the view only reads
-    /// <see cref="Selected"/> and <see cref="PlacementDirection"/> to draw the ghost.
+    /// All the build-mode input state: the selection (or none - the inspect cursor, which reads the map
+    /// instead of building on it), the ghost's facing, and the press/drag state machine that decides
+    /// *where* things land. It lives in the simulation rather than the view because placement is a rule
+    /// (a drill only on a patch, a belt needs a direction); the view only reads <see cref="Selected"/>
+    /// and <see cref="PlacementDirection"/> to draw the ghost.
     ///
-    /// A belt drag lays nothing on the press: the path is laid one tile at a time as the cursor moves,
-    /// and only cells this drag owns may be re-pointed, so sweeping across an existing run cannot
-    /// silently rewire it. Machines invert that: a single tile cannot sweep, so a drag *aims* and the
-    /// machine lands where the press was.
+    /// A belt drag lays nothing on the press: the path grows one tile at a time as the cursor moves, and
+    /// only cells this drag owns may be re-pointed, so sweeping across an existing run cannot silently
+    /// rewire it. Machines invert that - a single tile cannot sweep, so a drag *aims* and the machine
+    /// lands where the press was. Both answer "which way did this drag go?" with
+    /// <see cref="DominantDirection"/>, as does the belt walk, so a run drawn out of a machine leaves
+    /// along the side <see cref="PointMachineAtTheRun"/> turned that machine to.
     ///
-    /// Both kinds of drag answer the same question - which way did this drag go? - with the same rule
-    /// (<see cref="DominantDirection"/>): the axis the drag ran further along, with X winning a tie. A
-    /// belt walk follows it too, so a run drawn upwards leaves the press cell *upwards* rather than
-    /// stepping sideways first, and so a run drawn out of a machine leaves along the same side
-    /// <see cref="PointMachineAtTheRun"/> aims that machine at.
-    ///
-    /// A drag is also one gesture in the *other* sense: what is being built is decided by the press and
-    /// does not change until the button comes up, so a selection change under the player's hand cannot
-    /// turn "aim a drill" into "pave from here" (<see cref="Apply"/>).
+    /// What is being built is decided by the press and does not change until the button comes up, so a
+    /// selection change under the player's hand cannot turn "aim a drill" into "pave from here".
     /// </summary>
     public sealed class BuildController
     {
@@ -32,6 +27,11 @@ namespace Facet.Core
         private readonly BeltField _belts;
         private readonly MachineField _machines;
         private readonly EconomyState _economy;
+
+        /// <summary>The ore in the ground and the map itself: the two things the read cursor can name
+        /// that are not buildings (a vein, and a wave's doorway).</summary>
+        private readonly ShapePatchField _patches;
+        private readonly MapDefinition _map;
 
         /// <summary>The stream placements and removals are reported on. Derived telemetry: the
         /// controller's decisions are unchanged by it.</summary>
@@ -44,25 +44,37 @@ namespace Facet.Core
         private bool _dragCellIsOurs;
         private Int2 _lastRemovedCell;
 
-        public BuildKind Selected { get; private set; }
+        public BuildKind? Selected { get; private set; }
+
+        /// <summary>
+        /// The tile the player last read while nothing was selected - the cell the HUD's info card
+        /// describes. <see cref="NoCell"/> when nothing is pinned, which is also what bare ground pins:
+        /// a click either describes something or clears the card.
+        ///
+        /// View state, kept beside the selection because it is the same kind of thing: the pointer's
+        /// state, driven by the same command and needed by two views (the cursor's marker, the info
+        /// card). It changes no tick.
+        /// </summary>
+        public Int2 InspectedCell { get; private set; }
 
         public Dir GhostDirection { get; private set; }
 
         /// <summary>
         /// The facing the cursor ghost should draw, which is not always <see cref="GhostDirection"/>:
-        /// while a belt run is being dragged the run carries its own direction, so the chevron under
-        /// the cursor shows the way the belt is being laid instead of the way Q/E last left the ghost.
-        /// Before the drag moves - and for every machine - the ghost's own facing is still the answer.
+        /// while a belt run is being dragged the run carries its own direction, so the chevron shows
+        /// the way the belt is being laid rather than the way Q/E last left the ghost.
         /// </summary>
         public Dir PlacementDirection
             => _dragging && Selected == BuildKind.Belt && _dragCell != _pressCell
                 ? DominantDirection(_pressCell, _dragCell)
                 : GhostDirection;
 
-        public BuildController(TileGrid grid, BeltField belts, MachineField machines, EconomyState economy,
-            SimEventBuffer events)
+        public BuildController(TileGrid grid, ShapePatchField patches, MapDefinition map, BeltField belts,
+            MachineField machines, EconomyState economy, SimEventBuffer events)
         {
             _grid = grid ?? throw new ArgumentNullException(nameof(grid));
+            _patches = patches ?? throw new ArgumentNullException(nameof(patches));
+            _map = map ?? throw new ArgumentNullException(nameof(map));
             _belts = belts ?? throw new ArgumentNullException(nameof(belts));
             _machines = machines ?? throw new ArgumentNullException(nameof(machines));
             _economy = economy ?? throw new ArgumentNullException(nameof(economy));
@@ -72,7 +84,10 @@ namespace Facet.Core
 
         public void Reset()
         {
-            Selected = BuildKind.Belt;
+            // A run opens with nothing selected: the cursor reads the map until the player picks a
+            // building. The default is a state, not a building.
+            Selected = null;
+            InspectedCell = NoCell;
             GhostDirection = Dir.East;
             _dragging = false;
             _machinePress = false;
@@ -84,7 +99,7 @@ namespace Facet.Core
 
         /// <summary>Would a placement of this kind be allowed here? Structural only - whether the
         /// stockpile can cover it is <see cref="EconomyState.CanAfford"/>, and the cursor ghost reads
-        /// both. (The twist's costs live in circles, and circles live in the economy.)</summary>
+        /// both.</summary>
         public bool CanPlace(BuildKind kind, Int2 cell)
             => kind == BuildKind.Belt ? _grid.CanLayBelt(cell) : _machines.CanPlace(kind, cell);
 
@@ -114,10 +129,10 @@ namespace Facet.Core
 
         /// <summary>
         /// Take whatever is on this tile away. A **jammed belt is un-jammed instead of deleted**: that
-        /// is the doc's "clears the jam" action, it destroys the wrong-shape item that caused the
-        /// jam (leaving it would re-jam the same cell on the next tick), and it keeps the line's shape
-        /// so the player does not have to redraw the run they just diagnosed. Anything actually
-        /// removed refunds its full cost.
+        /// is the doc's "clears the jam" action, it destroys the wrong-shape item that caused the jam
+        /// (leaving it would re-jam the same cell next tick), and it keeps the line's shape so the
+        /// player does not have to redraw the run they just diagnosed. Anything actually removed
+        /// refunds its full cost.
         /// </summary>
         public bool Remove(Int2 cell)
         {
@@ -127,28 +142,71 @@ namespace Facet.Core
                 if (!_belts.TryRemove(cell)) return false;
                 _economy.Refund(BuildKind.Belt);
                 _events.Removed(cell, _economy.CostOf(BuildKind.Belt));
+                ForgetInspected(cell);
                 return true;
             }
             if (_machines.TryGet(cell, out MachineState machine) && _machines.TryRemove(cell))
             {
                 _economy.Refund(machine.Build);
                 _events.Removed(cell, _economy.CostOf(machine.Build));
+                ForgetInspected(cell);
                 return true;
             }
             return false;
         }
 
+        /// <summary>Removing what the info card describes drops the pin: the card would otherwise
+        /// describe a hole in the ground. Clearing a jam keeps the belt, so it deliberately does not
+        /// forget.</summary>
+        private void ForgetInspected(Int2 cell)
+        {
+            if (cell == InspectedCell) InspectedCell = NoCell;
+        }
+
         /// <summary>
-        /// Change the selection outside the press/release gesture. This is how the HUD's build bar
-        /// selects, and it is deliberately the same door a number key comes through: the next tick
-        /// carries it in <see cref="InputCommand.Selected"/> so there is still exactly one owner of
-        /// the state. A gesture already in progress keeps its own selection, so clicking a palette
-        /// tile can never re-purpose the drag the player is halfway through making.
+        /// Change the selection outside the press/release gesture. The HUD's build bar and a number key
+        /// come through this same door: the next tick carries the change in
+        /// <see cref="InputCommand.Selected"/>, so there is still exactly one owner of the state. A
+        /// gesture already in progress keeps its own selection, so clicking a palette tile can never
+        /// re-purpose the drag the player is halfway through making.
+        ///
+        /// <see langword="null"/> asks for the inspect cursor - Escape, or the info card's own button.
+        /// It builds nothing, and it drops the inspected building's marker too: the pin belongs to the
+        /// read cursor, so a highlight left behind in build mode would read as a second selection.
         /// </summary>
-        public void Select(BuildKind kind)
+        public void Select(BuildKind? kind)
         {
             if (_dragging) return;
             Selected = kind;
+            if (kind != null) InspectedCell = NoCell;
+        }
+
+        /// <summary>
+        /// Read the tile under the cursor: what the HUD describes while nothing is selected. Bare
+        /// ground unpins instead of pinning nothing, so a click on the map either describes something or
+        /// clears the card.
+        /// </summary>
+        public void Inspect(Int2 cell) => InspectedCell = CanInspect(cell) ? cell : NoCell;
+
+        /// <summary>
+        /// Is there something at this cell worth reading? The rule behind the pin, in one place so the
+        /// cursor that marks the tile and the card that describes it read the same answer: a building
+        /// (the Core included - it is a tile with state), ore in the ground, or a wave's doorway. Bare
+        /// empty ground is the only thing that is not.
+        /// </summary>
+        public bool CanInspect(Int2 cell)
+            => _grid.Get(cell).IsBuilding() || _patches.Has(cell) || _map.SpawnIndexOf(cell) >= 0;
+
+        /// <summary>
+        /// Apply the input state that changes no rule: which building is selected, and which tile the
+        /// player is reading. One method because it is one rule - the pointer's state follows the player
+        /// in every state a run can be in, paused and over included, while everything
+        /// <see cref="Apply"/> does to the world waits for a playing tick.
+        /// </summary>
+        public void ApplySelection(InputCommand cmd)
+        {
+            Select(cmd.Selected);
+            if (cmd.InspectPressed) Inspect(cmd.CursorCell);
         }
 
         public void Apply(InputCommand cmd)
@@ -156,10 +214,8 @@ namespace Facet.Core
             // The press decides what is being built; the selection waits for the next gesture. Updating
             // it mid-drag would re-purpose the gesture half way through it: aiming a drill, tapping the
             // belt key and letting go would lay a belt run out of the press cell instead of placing the
-            // drill. That is the destructive surprise the belt walk already refuses to allow (only cells
-            // this drag owns may be re-pointed), and latching is the same rule one level up. The ghost
-            // therefore shows what the release will actually build.
-            Select(cmd.Selected);
+            // drill. The ghost therefore shows what the release will actually build.
+            ApplySelection(cmd);
 
             if (cmd.RotateSteps != 0) GhostDirection = Rotate(GhostDirection, cmd.RotateSteps);
 
@@ -178,7 +234,11 @@ namespace Facet.Core
 
             _lastRemovedCell = NoCell;
 
-            bool isMachine = Selected != BuildKind.Belt;
+            // Nothing selected: the left button is the read cursor, so the gesture machine is never
+            // entered. Right-drag delete above still works - it never needed a selection.
+            if (!Selected.HasValue) return;
+
+            bool isMachine = Selected.Value != BuildKind.Belt;
 
             // A press starts the drag. An input source that only reports "held" (a test, a replay)
             // still works: the press is simply taken to be wherever the cursor already is.
@@ -217,24 +277,24 @@ namespace Facet.Core
             if (!_machinePress) return;
 
             _machinePress = false;
-            TryPlace(Selected, _pressCell, GhostDirection);
+
+            // A press only ever starts with a selection (the early return above) and Select refuses a
+            // change while the gesture runs, so this is the kind the press was taken with.
+            TryPlace(Selected.Value, _pressCell, GhostDirection);
         }
 
         /// <summary>
         /// Walk from the cell the drag last reached to the cursor, one tile at a time, laying belts.
         ///
-        /// The walk is Manhattan, and the axis it takes first is the drag's own dominant axis - the
-        /// same rule <see cref="DominantDirection"/> uses to aim a machine. So a run dragged up the
-        /// screen starts *up* from the press cell and puts its sideways step at the far end, instead
-        /// of always stepping in X first and leaving the press cell to the left or the right whatever
-        /// the player did. An axis-aligned drag has one component at zero, so the choice never shows;
-        /// on a diagonal it is what makes the run leave the way the player dragged. A blocked tile is
-        /// skipped but the walk continues, and the direction link is deliberately not carried across
-        /// the gap.
+        /// The walk is Manhattan, and the axis it takes first is the drag's own dominant axis - the same
+        /// rule <see cref="DominantDirection"/> uses to aim a machine - so a run dragged up the screen
+        /// starts *up* from the press cell and puts its sideways step at the far end. A blocked tile is
+        /// skipped but the walk continues, and the direction link is deliberately not carried across the
+        /// gap.
         ///
-        /// Only cells this drag owns get re-pointed: the one it started from (if it was already a
-        /// belt) and the ones it laid itself. A belt the cursor merely passes over keeps its
-        /// direction, so dragging across an existing build cannot silently rewire it.
+        /// Only cells this drag owns get re-pointed: the one it started from (if it was already a belt)
+        /// and the ones it laid itself. A belt the cursor merely passes over keeps its direction, so
+        /// dragging across an existing build cannot silently rewire it.
         /// </summary>
         private void LayPath(Int2 target)
         {
@@ -250,11 +310,10 @@ namespace Facet.Core
                 Int2 next = NextStep(cur, target, yFirst);
                 Dir dir = DirectionOf(cur, next);
 
-                // On the first step the press cell becomes a belt too, so the run starts under the
-                // cursor rather than one tile along. Afterwards the cell is re-pointed forward,
-                // which is what turns a corner into a turn instead of a dead end. Placement goes
-                // through TryPlace so every cell is paid for: a dry stockpile stops the run growing,
-                // exactly like a blocked tile does.
+                // The press cell becomes a belt on the first step, so the run starts under the cursor
+                // rather than one tile along; afterwards the cell is re-pointed forward, which turns a
+                // corner into a turn instead of a dead end. Placement goes through TryPlace so every
+                // cell is paid for: a dry stockpile stops the run growing like a blocked tile does.
                 if (curIsOurs) _belts.TrySetDirection(cur, dir);
                 else curIsOurs = TryPlace(BuildKind.Belt, cur, dir);
 
@@ -269,17 +328,15 @@ namespace Facet.Core
         }
 
         /// <summary>
-        /// Point the machine standing on the press cell at the run just drawn out of it. A run leaving
-        /// a machine's own cell can only be that machine's output - a belt that *feeds* a machine has
-        /// to point into it, which means it was drawn from the other end - so the machine turns to face
-        /// the run whatever way the player had aimed it.
+        /// Point the machine standing on the press cell at the run just drawn out of it. A run leaving a
+        /// machine's own cell can only be that machine's output - a belt that *feeds* a machine has to
+        /// point into it, which means it was drawn from the other end - so the machine turns to face the
+        /// run whatever way the player had aimed it.
         ///
         /// Without this a drill placed by a plain click keeps the ghost's default facing (east) and
         /// silently mines nothing into a run drawn north or south, which reads as "belts only work to
-        /// the left and right". Drills and pipes only: their facing *is* their output. A decomposer's
-        /// outputs are read off the belts around it, exactly like a splitter's, so turning one would
-        /// promise what Q/E cannot deliver; a turret eats from all four sides and its facing is just
-        /// where its barrel rests.
+        /// the left and right". Drills and pipes only: their facing *is* their output. A turret eats
+        /// from all four sides and its facing is just where its barrel rests.
         /// </summary>
         private void PointMachineAtTheRun(Int2 cursorCell)
         {
@@ -291,8 +348,8 @@ namespace Facet.Core
 
         /// <summary>
         /// Which axis a walk from <paramref name="from"/> to <paramref name="to"/> takes first: Y when
-        /// the drag ran further along Y. X wins a tie, exactly as <see cref="DominantDirection"/> does,
-        /// so a walk and the machine being aimed by the same drag always agree on which way it went.
+        /// the drag ran further along Y, with X winning a tie exactly as <see cref="DominantDirection"/>
+        /// does.
         /// </summary>
         private static bool WalkYFirst(Int2 from, Int2 to)
             => Math.Abs(to.Y - from.Y) > Math.Abs(to.X - from.X);
@@ -315,7 +372,7 @@ namespace Facet.Core
         }
 
         /// <summary>The way a drag points a single-tile building: whichever axis it ran further along,
-        /// with X winning a tie exactly as <see cref="LayPath"/> does.</summary>
+        /// with X winning a tie.</summary>
         private static Dir DominantDirection(Int2 from, Int2 to)
         {
             int dx = to.X - from.X;

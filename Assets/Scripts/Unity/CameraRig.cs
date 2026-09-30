@@ -5,12 +5,15 @@ using UnityEngine.InputSystem;
 namespace Facet.Game
 {
     /// <summary>
-    /// The free camera the design doc's controls call for: WASD or the arrow keys pan, the wheel
-    /// zooms, and the view is never allowed to show the void outside the map.
+    /// The free camera the design doc's controls call for: WASD or the arrow keys pan, the wheel zooms,
+    /// and the pan is bounded by the map - by as much of the screen as the HUD leaves, so a tile at the
+    /// map's edge can always be brought out from under the panels, and a little further so it arrives in
+    /// the open. The bound itself is <see cref="PanLimits"/>; the rig only feeds it the screen, the zoom
+    /// and the slack below.
     ///
     /// This reads input itself rather than going through the simulation. Panning is a view concern -
-    /// it is not part of the game state, nothing replays it, and routing it through the tick would
-    /// make the camera step at 30 Hz for no reason.
+    /// nothing replays it, and routing it through the tick would make the camera step at 30 Hz for no
+    /// reason.
     /// </summary>
     [DefaultExecutionOrder(-50)]
     public sealed class CameraRig : MonoBehaviour
@@ -24,6 +27,11 @@ namespace Facet.Game
         [SerializeField] private float minZoom = 4f;
         [SerializeField] private float maxZoom = 18f;
         [SerializeField] private float smoothTime = 0.08f;
+
+        [Tooltip("How far past the map's edge the camera may still pan, as a fraction of the screen. " +
+            "This is the margin an edge row is panned out into instead of stopping against the panel " +
+            "that was hiding it; 0 presses the map against that panel instead.")]
+        [SerializeField] private float edgeSlackScreens = PanLimits.DefaultEdgeSlack;
 
         private Camera _camera;
         private TileGrid _grid;
@@ -111,22 +119,13 @@ namespace Facet.Game
             return Mathf.Clamp(notches, -3f, 3f);
         }
 
+        /// <summary>The pan bound for a given zoom; the rule is <see cref="PanLimits"/>. The rig only
+        /// hands it the screen, the zoom and <see cref="edgeSlackScreens"/>.</summary>
         private Vector3 Clamp(Vector3 position, float zoom)
         {
-            float halfHeight = zoom;
-            float halfWidth = zoom * _camera.aspect;
-
-            return new Vector3(
-                ClampAxis(position.x, halfWidth, _grid.Width),
-                ClampAxis(position.y, halfHeight, _grid.Height),
-                position.z);
-        }
-
-        /// <summary>Keep the view inside [0,size]; if the map is smaller than the view, centre it.</summary>
-        private static float ClampAxis(float value, float halfExtent, int size)
-        {
-            if (size <= halfExtent * 2f) return size * 0.5f;
-            return Mathf.Clamp(value, halfExtent, size - halfExtent);
+            return PanLimits.Clamp(position, zoom, _camera.aspect, Screen.width, Screen.height,
+                _grid.Width, _grid.Height, HudLayout.Insets(HudLayout.Scale(Screen.height)),
+                edgeSlackScreens);
         }
     }
 }

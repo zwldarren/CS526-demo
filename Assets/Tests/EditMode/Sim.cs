@@ -57,11 +57,13 @@ namespace Facet.Tests
                 "the economy never banked " + target + " circles");
         }
 
-        /// <summary>Press the left button on a cell, hold it and drag the cursor to another.</summary>
+        /// <summary>Press the left button on a cell, hold it and drag the cursor to another. The
+        /// selection is sent explicitly: a command with no selection is the inspect cursor, which
+        /// places nothing.</summary>
         public static void Drag(SimWorld world, Int2 from, Int2 to)
         {
-            world.Tick(new InputCommand(true, false, from, primaryPressed: true));
-            world.Tick(new InputCommand(true, false, to));
+            world.Tick(new InputCommand(true, false, from, selected: BuildKind.Belt));
+            world.Tick(new InputCommand(true, false, to, selected: BuildKind.Belt));
             world.Tick(InputCommand.None);
         }
 

@@ -63,8 +63,17 @@ namespace Facet.Core
         /// <summary>The defended object, and the bank. Losing it loses the run.</summary>
         public CoreState Core;
 
-        /// <summary>Which building the player has selected right now.</summary>
-        public BuildKind SelectedKind => _build.Selected;
+        /// <summary>Which building the player has selected right now, or null for the inspect cursor:
+        /// nothing selected, so the left button reads the map instead of building on it.</summary>
+        public BuildKind? SelectedKind => _build.Selected;
+
+        /// <summary>The building the player last read - the tile the HUD's info card describes while
+        /// nothing is selected. Out of bounds when nothing is pinned.</summary>
+        public Int2 InspectedCell => _build.InspectedCell;
+
+        /// <summary>Is there something at this cell worth reading? The cursor, the click and the info
+        /// card all read this one answer.</summary>
+        public bool CanInspect(Int2 cell) => _build.CanInspect(cell);
 
         /// <summary>Which way the ghost under the cursor faces, so the view can draw the same facing the
         /// simulation would use: the run's own direction while a belt is being dragged, the placement
@@ -101,7 +110,7 @@ namespace Facet.Core
             _machineSystem = new MachineSystem(TileGrid, Patches, Belts, Machines, Enemies, Projectiles,
                 Content, Events);
             _sink = new CoreSinkSystem(TileGrid, Belts, Economy, Events);
-            _build = new BuildController(TileGrid, Belts, Machines, Economy, Events);
+            _build = new BuildController(TileGrid, Patches, map, Belts, Machines, Economy, Events);
 
             PlaceCore(CoreOrigin(TileGrid));
             Maps.PlacePatches(TileGrid, Patches, map);
@@ -132,10 +141,10 @@ namespace Facet.Core
                 // and clicking the button in the same breath must not start a wave on resume.
                 _waveRequested = false;
 
-                // Selection, though, is not a world change - the HUD's build bar keeps responding
-                // while the run is held, so the highlighted tile follows the click. It comes through
-                // the same command (and the same drag latch) as a number key.
-                _build.Select(cmd.Selected);
+                // Selection and the inspect pin, though, are not world changes - the HUD's build bar
+                // keeps responding while the run is held, and a paused player can read their own base.
+                // They come through the same command as a number key.
+                _build.ApplySelection(cmd);
                 return;
             }
 
@@ -216,11 +225,6 @@ namespace Facet.Core
         public void RequestRestart() => _restartRequested = true;
 
         public bool CanPlace(BuildKind kind, Int2 cell) => _build.CanPlace(kind, cell);
-
-        /// <summary>Structural rules AND the stockpile both allow this placement - the cursor
-        /// ghost's colour reads this, so an unaffordable building shows before the click.</summary>
-        public bool CanAffordPlace(BuildKind kind, Int2 cell)
-            => _build.CanPlace(kind, cell) && Economy.CanAfford(kind);
 
         public bool TryPlace(BuildKind kind, Int2 cell, Dir direction) => _build.TryPlace(kind, cell, direction);
 

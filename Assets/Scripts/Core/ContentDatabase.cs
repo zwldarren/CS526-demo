@@ -159,6 +159,20 @@ namespace Facet.Core
         /// for every other behaviour, which routes nothing.</summary>
         public readonly ShapeType Filter;
 
+        /// <summary>
+        /// Does this machine's own facing mean anything? A drill pushes onto the cell it faces, a pipe
+        /// carries across in its facing, a sorter sends its filtered shape out the side it faces, and a
+        /// turret's barrel rests where it faces - so all four are placed by aiming them, and a view can
+        /// draw that facing.
+        ///
+        /// False for the hubs that read their ports off the belts around them (a converter, a
+        /// splitter): their stored facing is never read, so an arrow beside one would promise what
+        /// turning it cannot set. Asked by the ghost that draws the arrow and by the HUD that names the
+        /// side.
+        /// </summary>
+        public bool UsesFacing
+            => Behavior != BehaviorKind.Converter && Behavior != BehaviorKind.Splitter;
+
         public MachineDef(ContentId id, BuildKind build, TileKind tile, BehaviorKind behavior, int cost,
             string name, string description, ContentId recipeId, float interval,
             ShapeType filter = ShapeType.None)

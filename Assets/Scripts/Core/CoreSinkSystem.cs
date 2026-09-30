@@ -17,10 +17,6 @@ namespace Facet.Core
         /// actually lands.</summary>
         private readonly SimEventBuffer _events;
 
-        /// <summary>Banked this many circles in the last step. Telemetry: a view can flash the Core,
-        /// a test can read the rate without polling the stockpile.</summary>
-        public int BankedLastStep { get; private set; }
-
         public CoreSinkSystem(TileGrid grid, BeltField belts, EconomyState economy, SimEventBuffer events)
         {
             _grid = grid;
@@ -32,8 +28,6 @@ namespace Facet.Core
         /// <summary>Empty every belt delivering into the Core's footprint. Runs once per tick.</summary>
         public void Step(Int2 coreOrigin)
         {
-            BankedLastStep = 0;
-
             // The cells a delivery can come from: the ring one tile around the footprint, checked in
             // a fixed perimeter order so which of two ready belts banks first is the map's decision.
             int minX = coreOrigin.X - 1;
@@ -60,7 +54,6 @@ namespace Facet.Core
             if (shape == ShapeType.Circle)
             {
                 _economy.Bank(1);
-                BankedLastStep++;
                 _events.Banked(cell);
             }
 

@@ -9,7 +9,9 @@ namespace Facet.Game
     /// The player's whole operating surface, laid out in four fixed regions: a status card top-left
     /// (the map and its wave, the Core's health, the stockpile, the defence's two diagnostics and the
     /// last second's news), a small controls card top-right, a clickable **build bar** along the
-    /// bottom, and an info card just above it that describes whichever building is hovered or selected.
+    /// bottom, and an info card just above it that describes whichever building is hovered, selected -
+    /// or, with nothing selected, read (see <see cref="DrawInspectInfo"/>). That last state is the one a
+    /// run opens in, and the one Escape goes back to.
     ///
     /// The build bar is the point of this view. Every building is a real button carrying its hotkey,
     /// its name, its role and its cost; a tile is tinted when the stockpile cannot cover it, outlined
@@ -25,28 +27,16 @@ namespace Facet.Game
     ///
     /// Drawn with IMGUI on purpose: the whole game is built in code, with no prefabs and no scene
     /// authoring, and a hand-authored uGUI canvas would be the one asset that has to be edited in the
-    /// Editor to be changed. It is immediate mode, but it is not un-styled: panels, borders, accent
-    /// stripes and hover states all come from the <see cref="Palette"/>, and every number printed for a
-    /// building comes from the run's <see cref="ContentDatabase"/>, so tuning a stat tunes what the HUD
-    /// claims.
+    /// Editor to be changed.
+    ///
+    /// The panels' geometry lives in <see cref="HudLayout"/>, because the camera rig needs the same
+    /// numbers.
     /// </summary>
     [DefaultExecutionOrder(200)]
     public sealed class HudView : MonoBehaviour
     {
-        private const float Margin = 12f;
-
         /// <summary>Rebuild the styles once the screen has scaled this far from the built size.</summary>
         private const float StyleScaleTolerance = 0.05f;
-
-        // Panel sizes, unscaled: multiplied by the same screen scale the fonts use, so the layout
-        // stays proportional instead of the text growing inside a fixed box.
-        private const float StatusWidth = 470f;
-        private const float StatusHeight = 252f;
-        private const float ControlsWidth = 210f;
-        private const float ControlsHeight = 100f;
-        private const float InfoWidth = 392f;
-        private const float InfoHeight = 134f;
-        private const float BarHeight = 126f;
 
         /// <summary>The window the "last second" line reports over: one second, in ticks, so the
         /// numbers a player steers by are a rate rather than a running total.</summary>
@@ -56,10 +46,10 @@ namespace Facet.Game
         private Palette _palette;
         private CampaignState _campaign;
 
-        /// <summary>The build bar's two ways back into the input latch: select a kind, and turn the
-        /// placement ghost. Handed in by the driver rather than reached for, so the HUD cannot touch
-        /// anything the input source does not offer, and a scene with no driver still draws.</summary>
-        private Action<BuildKind> _selectKind;
+        /// <summary>The build bar's two ways back into the input latch: select a kind (or none, which is
+        /// the inspect cursor), and turn the placement ghost. Handed in by the driver rather than
+        /// reached for, so a scene with no driver still draws.</summary>
+        private Action<BuildKind?> _selectKind;
         private Action<int> _rotate;
 
         private Texture2D _pixel;
@@ -76,8 +66,8 @@ namespace Facet.Game
 
         private float _stylesScale = -1f;
 
-        /// <summary>Which build tile the pointer is over this frame, or -1. Read by the info card,
-        /// which describes the hovered building in preference to the selected one.</summary>
+        /// <summary>Which build tile the pointer is over this frame, or -1. Read by the info card, which
+        /// describes the hovered building in preference to the selected or read one.</summary>
         private int _hoveredTile = -1;
 
         /// <summary>The mouse is over a HUD panel right now, so a click belongs to the UI and not to the
@@ -100,7 +90,7 @@ namespace Facet.Game
         /// for the same reason: without them the bar still draws, it just cannot be clicked.
         /// </summary>
         public void Initialize(SimWorld world, Palette palette, CampaignState campaign = null,
-            Action<BuildKind> selectKind = null, Action<int> rotate = null)
+            Action<BuildKind?> selectKind = null, Action<int> rotate = null)
         {
             _world = world;
             _palette = palette;
@@ -125,19 +115,15 @@ namespace Facet.Game
 
             float s = _stylesScale;
 
-            var status = new Rect(Margin * s, Margin * s, StatusWidth * s, StatusHeight * s);
-            var controls = new Rect(Screen.width - Margin * s - ControlsWidth * s, Margin * s,
-                ControlsWidth * s, ControlsHeight * s);
-            var bar = new Rect(Margin * s, Screen.height - Margin * s - BarHeight * s,
-                Screen.width - 2f * Margin * s, BarHeight * s);
-            var info = new Rect(bar.xMax - InfoWidth * s, bar.y - 8f * s - InfoHeight * s,
-                InfoWidth * s, InfoHeight * s);
+            Rect status = HudLayout.Status(s);
+            Rect controls = HudLayout.Controls(Screen.width, s);
+            Rect bar = HudLayout.Bar(Screen.width, Screen.height, s);
+            Rect info = HudLayout.Info(bar, s);
 
             // The HUD owns its panels: the pointer being over one is reported to the input source, so a
             // click on a button cannot also build under it. OnGUI runs after the driver's Update, so
             // this describes the panel under the pointer as of the previous frame - a frame of lag on a
-            // pointer that has to travel to the button anyway. The banner is left out on purpose: it has
-            // nothing to click, and while it is up (paused, or the run is over) the world is not ticking.
+            // pointer that has to travel to the button anyway.
             PointerOverHud = PointerOver(status) || PointerOver(controls) || PointerOver(bar) || PointerOver(info);
 
             DrawStatus(status, s);
@@ -201,13 +187,11 @@ namespace Facet.Game
 
         /// <summary>
         /// What the simulation reported in the last second, read straight off its event stream: the
-        /// economy's heartbeat (circles banked), the defence's work (shots, kills) and the one thing
-        /// the player has to act on (a jam, and where it is).
+        /// economy's heartbeat (circles banked), the defence's work (shots, kills) and the one thing the
+        /// player has to act on (a jam, and where it is).
         ///
         /// A window rather than a log, deliberately: a scrolling list of one-second-old news is
-        /// something to read instead of play, while these four numbers are what a player actually
-        /// steers by - and they come from the same stream a sound or a flash would, so the HUD cannot
-        /// disagree with the rest of the feedback about what just happened.
+        /// something to read instead of play.
         /// </summary>
         private string RecentLine()
         {
@@ -370,7 +354,7 @@ namespace Facet.Game
             Rect header = new Rect(panel.x + 12f * s, panel.y + 9f * s, panel.width - 24f * s, 15f * s);
             Label(header, "BUILD", _palette.HudAccent, _tiny);
             Label(header,
-                "click a tile or press 1–9   ·   Q / E turn the ghost   ·   LMB place (drag to lay belts)   ·   RMB delete or clear a jam",
+                "click a tile or press 1–9   ·   again to drop it   ·   Q / E turn the ghost   ·   LMB place (drag to lay belts)   ·   RMB delete or clear a jam   ·   Esc inspects",
                 _palette.HudText, _tinyRight);
 
             BuildKind[] kinds = _world.Content.BuildKinds;
@@ -392,11 +376,11 @@ namespace Facet.Game
         }
 
         /// <summary>
-        /// One building as a button: its hotkey in the corner, its cost in the other, its name in the
-        /// middle and the job it does underneath, over a stripe tinted by that job. Selected is an
-        /// accent outline and a tinted fill; unaffordable greys the name and turns the cost amber; the
-        /// pointer lightens the whole tile. A click selects the kind through the input latch - it never
-        /// places anything, so a stray click on the palette can only ever change what is selected.
+        /// One building as a button: hotkey, cost, name and role over a stripe tinted by that role.
+        /// Selected is an accent outline and a tinted fill; unaffordable greys the name and turns the
+        /// cost amber; the pointer lightens the whole tile. A click selects the kind through the input
+        /// latch - it never places anything, so a stray click on the palette can only ever change what
+        /// is selected.
         /// </summary>
         private void DrawBuildTile(Rect rect, BuildKind kind, int index, bool hovered, float s)
         {
@@ -444,11 +428,23 @@ namespace Facet.Game
         /// cost and role in the header, a sentence of what it is for, the numbers behind it, and the
         /// facing its ghost will be built with - plus the two rotate buttons, which are the one way to
         /// turn a building without a keyboard.
+        ///
+        /// With nothing selected and nothing hovered the card describes what the player *read* instead -
+        /// see <see cref="DrawInspectInfo"/>.
         /// </summary>
         private void DrawInfo(Rect panel, float s)
         {
             BuildKind[] kinds = _world.Content.BuildKinds;
-            BuildKind kind = _hoveredTile >= 0 && _hoveredTile < kinds.Length ? kinds[_hoveredTile] : _world.SelectedKind;
+            BuildKind? kind = _hoveredTile >= 0 && _hoveredTile < kinds.Length
+                ? kinds[_hoveredTile]
+                : _world.SelectedKind;
+
+            if (kind.HasValue) DrawBuildInfo(panel, kind.Value, s);
+            else DrawInspectInfo(panel, s);
+        }
+
+        private void DrawBuildInfo(Rect panel, BuildKind kind, float s)
+        {
             MachineDef def = _world.Content.Machine(kind);
             Color category = CategoryColor(kind);
 
@@ -480,6 +476,358 @@ namespace Facet.Game
 
             if (Button(left, "◀ turn", ButtonFill, _palette.HudText, s)) _rotate?.Invoke(-1);
             if (Button(right, "turn ▶", ButtonFill, _palette.HudText, s)) _rotate?.Invoke(+1);
+
+            // With something selected the card also carries the keyboard-free way back to reading the
+            // map: the key is Escape, the button is the same door.
+            if (!_world.SelectedKind.HasValue) return;
+
+            var inspect = new Rect(panel.xMax - 14f * s - buttonWidth * 3f - 18f * s, line.y,
+                74f * s, 22f * s);
+            if (Button(inspect, "inspect", ButtonFill, _palette.HudText, s)) _selectKind?.Invoke(null);
+        }
+
+        /// <summary>
+        /// The card with nothing selected: what the player read, not what they are about to build.
+        ///
+        /// Its lines are the building's *state*, which is the one thing the build card cannot show - the
+        /// ports its belts are actually wired to, what it is doing this second, whether it is starved or
+        /// jammed - and every one is read from the same state the tick runs on. The blurb and the cost
+        /// are left out on purpose: those are the catalogue's business.
+        ///
+        /// Nothing pinned - or a pin whose building has since been removed - is not an empty card: it
+        /// says what the state is for and how to leave it.
+        /// </summary>
+        private void DrawInspectInfo(Rect panel, float s)
+        {
+            Panel(panel);
+
+            Int2 cell = _world.InspectedCell;
+
+            if (_world.Machines.TryGetSnapshot(cell, out MachineSnapshot machine))
+            {
+                DrawMachineCard(panel, s, cell, machine);
+                return;
+            }
+
+            if (_world.Belts.TryGet(cell, out BeltState belt))
+            {
+                DrawBeltCard(panel, s, cell, belt);
+                return;
+            }
+
+            TileKind tile = _world.TileGrid.Get(cell);
+            if (tile == TileKind.Core)
+            {
+                DrawCoreCard(panel, s);
+                return;
+            }
+
+            // The ground is read off the patch *field* rather than the tile kind, so an ore card always
+            // has a shape to name: a tile can be marked as a patch with no shape recorded under it,
+            // which is not ore and has no glyph.
+            int doorway = _world.Map.SpawnIndexOf(cell);
+            if (doorway >= 0 || _world.Patches.Has(cell))
+            {
+                DrawGroundCard(panel, s, cell, doorway);
+                return;
+            }
+
+            DrawInspectHint(panel, s);
+        }
+
+        private void DrawMachineCard(Rect panel, float s, Int2 cell, in MachineSnapshot machine)
+        {
+            MachineDef def = _world.Content.Machine(machine.Build);
+            Color category = CategoryColor(machine.Build);
+
+            float y = InspectHeader(panel, s, def.Name, category, RoleOf(machine.Build) + "   " + cell);
+
+            InspectLine(panel, s, ref y, Ports(machine), _palette.MachineIdle);
+
+            Note note = MachineNote(cell, machine);
+            InspectLine(panel, s, ref y, note.Text, note.Colour);
+
+            string stats = Stats(machine.Build);
+            if (!string.IsNullOrEmpty(stats)) InspectLine(panel, s, ref y, stats, category);
+
+            InspectLine(panel, s, ref y, FacingNote(machine), _palette.MachineIdle);
+        }
+
+        private void DrawBeltCard(Rect panel, float s, Int2 cell, in BeltState belt)
+        {
+            MachineDef def = _world.Content.Machine(BuildKind.Belt);
+
+            float y = InspectHeader(panel, s, def.Name, CategoryColor(BuildKind.Belt), "TRANSPORT   " + cell);
+
+            if (belt.Jammed)
+            {
+                // A jam arrives with the shape that caused it on the belt; name that shape when it is
+                // there rather than asking the content table about "nothing", which has no glyph.
+                string culprit = belt.Item == ShapeType.None ? string.Empty : " by " + Glyph(belt.Item);
+                InspectLine(panel, s, ref y,
+                    "JAMMED" + culprit + " — the wrong shape for whatever this segment feeds",
+                    _palette.HudWarn);
+            }
+            else if (belt.HasItem)
+                InspectLine(panel, s, ref y,
+                    "carrying " + Glyph(belt.Item) + " · " + Mathf.RoundToInt(belt.Progress * 100f) +
+                    "% across", _palette.HudText);
+            else
+                InspectLine(panel, s, ref y, "empty — nothing riding it right now", _palette.HudText);
+
+            InspectLine(panel, s, ref y, "carries its item to the " + DirName(belt.Direction) +
+                " · one item per cell, so this is also its rate", _palette.MachineIdle);
+        }
+
+        private void DrawCoreCard(Rect panel, float s)
+        {
+            float y = InspectHeader(panel, s, "Core", _palette.Core, "the bank");
+
+            bool hurting = _world.Core.HealthFraction < 0.4f;
+            InspectLine(panel, s, ref y, "holding " + Mathf.CeilToInt(_world.Core.Hp) + " / " +
+                Mathf.CeilToInt(_world.Core.MaxHp) + " health", hurting ? _palette.HudWarn : _palette.HudGood);
+            InspectLine(panel, s, ref y, "circles belted into it become spendable", _palette.MachineIdle);
+            InspectLine(panel, s, ref y, "losing it loses the run", _palette.MachineIdle);
+        }
+
+        /// <summary>
+        /// The ground: a vein of ore, an entry point the waves walk in at, or both - a map may open a
+        /// door over ore, so the card says what is there rather than choosing between them. Neither is a
+        /// building, which is exactly why it is worth reading.
+        /// </summary>
+        private void DrawGroundCard(Rect panel, float s, Int2 cell, int doorway)
+        {
+            bool ore = _world.Patches.Has(cell);
+            ShapeType shape = ore ? _world.Patches.ShapeAt(cell) : ShapeType.None;
+            Color oreColour = _palette.ShapeColor(shape);
+
+            string title = doorway < 0 ? "Ore patch" : ore ? "Entry point · ore" : "Entry point";
+            float y = InspectHeader(panel, s, title, doorway < 0 ? oreColour : _palette.SpawnMarker,
+                cell.ToString());
+
+            if (doorway >= 0)
+            {
+                InspectLine(panel, s, ref y, WavesAt(doorway), _palette.SpawnMarker);
+                InspectLine(panel, s, ref y, "enemies enter on this tile and walk at the Core",
+                    _palette.MachineIdle);
+            }
+
+            if (!ore) return;
+
+            InspectLine(panel, s, ref y, "yields " + Glyph(shape) + " — only a drill may be built on it",
+                oreColour);
+
+            if (TryVeinAt(cell, out ShapePatch vein))
+                InspectLine(panel, s, ref y, vein.Width + " × " + vein.Height + " vein in the ground",
+                    _palette.MachineIdle);
+        }
+
+        /// <summary>Which waves enter the map at this door, read off the map's own wave table - the
+        /// question a player looking at a doorway is asking, and the reason a door no wave uses is worth
+        /// saying out loud instead of leaving blank.</summary>
+        private string WavesAt(int doorway)
+        {
+            MapDefinition map = _world.Map;
+            var numbers = new StringBuilder();
+            int count = 0;
+
+            for (int w = 0; w < map.Waves.Length; w++)
+            {
+                SpawnGroup[] groups = map.Waves[w].Groups;
+                bool used = false;
+                for (int g = 0; g < groups.Length && !used; g++)
+                    used = map.ResolveSpawn(groups[g].SpawnPoint) == doorway;
+                if (!used) continue;
+
+                if (numbers.Length > 0) numbers.Append(", ");
+                numbers.Append(w + 1);
+                count++;
+            }
+
+            if (count == 0) return "no wave enters the map here";
+            return (count == 1 ? "wave " : "waves ") + numbers + " walk in here";
+        }
+
+        /// <summary>The vein rectangle covering this cell, for its size: the map's own patch table, so
+        /// the number the card prints is the ground the map laid, not a guess from the cursor. False for
+        /// ore a test stamped straight into the field, which has no rectangle to report.</summary>
+        private bool TryVeinAt(Int2 cell, out ShapePatch vein)
+        {
+            ShapePatch[] patches = _world.Map.Patches;
+            for (int i = 0; i < patches.Length; i++)
+            {
+                if (!patches[i].Contains(cell)) continue;
+                vein = patches[i];
+                return true;
+            }
+
+            vein = default;
+            return false;
+        }
+
+        private void DrawInspectHint(Rect panel, float s)
+        {
+            float y = InspectHeader(panel, s, "INSPECT", _palette.HudAccent, "nothing selected");
+
+            Label(new Rect(panel.x + 14f * s, y, panel.width - 28f * s, 32f * s),
+                "click a building, a vein or a doorway to read it: what it is, what it is doing, and " +
+                "how its belts wire it up", _palette.HudText, _wrap);
+            y += 34f * s;
+
+            InspectLine(panel, s, ref y,
+                "click a build tile or press 1–9 to build one · the same one again to read instead",
+                _palette.MachineIdle);
+        }
+
+        /// <summary>The card's title row and the accent stripe, and the y the first line of body text
+        /// goes at: every card opens the same way, with the building's own category colour.</summary>
+        private float InspectHeader(Rect panel, float s, string name, Color accent, string right)
+        {
+            Fill(new Rect(panel.x, panel.y, 3f * s, panel.height), accent);
+
+            Rect line = new Rect(panel.x + 14f * s, panel.y + 9f * s, panel.width - 28f * s, 18f * s);
+            Label(line, name, _palette.HudText, _title);
+            Label(line, right, _palette.MachineIdle, _smallRight);
+
+            return line.y + 22f * s;
+        }
+
+        private void InspectLine(Rect panel, float s, ref float y, string text, Color colour)
+        {
+            Label(new Rect(panel.x + 14f * s, y, panel.width - 28f * s, 15f * s), text, colour, _small);
+            y += 17f * s;
+        }
+
+        /// <summary>One live line about the inspected building, with the colour that says whether it
+        /// needs the player: a starved turret and a machine with a dead end are the two states worth
+        /// looking at a building for.</summary>
+        private readonly struct Note
+        {
+            public readonly string Text;
+            public readonly Color Colour;
+
+            public Note(string text, Color colour)
+            {
+                Text = text;
+                Colour = colour;
+            }
+        }
+
+        /// <summary>
+        /// What this building is doing right now, dispatched on its behaviour - the same dispatch the
+        /// tick and the catalogue use, so a machine added to the content table is described here without
+        /// a case of its own. Every sentence is about a state the player can act on.
+        /// </summary>
+        private Note MachineNote(Int2 cell, in MachineSnapshot machine)
+        {
+            MachineDef def = _world.Content.Machine(machine.Build);
+
+            switch (def.Behavior)
+            {
+                case BehaviorKind.Drill:
+                {
+                    Int2 onto = cell + machine.Direction.Offset();
+                    return _world.TileGrid.Get(onto).Eats()
+                        ? new Note("mining " + Glyph(_world.Patches.ShapeAt(cell)) + " onto " + onto,
+                            _palette.HudText)
+                        : new Note("nothing to push onto at " + onto + " — lay a belt facing it",
+                            _palette.HudWarn);
+                }
+
+                case BehaviorKind.Converter:
+                {
+                    RecipeDef recipe = _world.Content.Recipe(def.RecipeId);
+                    if (machine.OutMask.IsEmpty)
+                        return new Note("no outlet — lay a belt pointing away from it", _palette.HudWarn);
+
+                    if (machine.Work > 0f)
+                        return new Note("splitting " + Glyph(recipe.Input) + " · " +
+                            Mathf.RoundToInt(machine.Work * 100f) + "% through", _palette.HudText);
+
+                    return machine.Shape == recipe.Output
+                        ? new Note("holding " + Glyph(recipe.Output) + " — every outlet is full",
+                            _palette.HudWarn)
+                        : new Note("idle — waiting for " + Glyph(recipe.Input), _palette.HudText);
+                }
+
+                case BehaviorKind.Pipe:
+                {
+                    Int2 lands = cell + machine.Direction.Offset() * 2;
+                    return machine.Shape == ShapeType.None
+                        ? new Note("empty — nothing delivered", _palette.HudText)
+                        : new Note("carrying " + Glyph(machine.Shape) + " to " + lands + " · " +
+                            Mathf.RoundToInt(machine.Work * 100f) + "% across", _palette.HudText);
+                }
+
+                case BehaviorKind.Splitter:
+                    if (machine.OutMask.IsEmpty)
+                        return new Note("no outlet — lay a belt pointing away from it", _palette.HudWarn);
+
+                    return machine.Shape == ShapeType.None
+                        ? new Note("dealing whatever arrives round robin", _palette.HudText)
+                        : new Note("holding " + Glyph(machine.Shape) + " — every outlet is full",
+                            _palette.HudWarn);
+
+                case BehaviorKind.Sorter:
+                    if (machine.OutMask.IsEmpty)
+                        return new Note("no outlet — lay a belt pointing away from it", _palette.HudWarn);
+
+                    return new Note(Glyph(def.Filter) + " leaves by the side it faces · the rest take " +
+                        "the other outlets", _palette.HudText);
+
+                case BehaviorKind.Turret:
+                {
+                    TurretDef spec = _world.Content.Turret(machine.Build);
+                    if (!machine.Armed)
+                        return new Note("starved — no " + Glyph(spec.Ammo) + " waiting on its lines",
+                            _palette.HudWarn);
+
+                    return new Note(machine.HasTarget ? "armed · a target in range" : "armed · nothing in range",
+                        _palette.HudGood);
+                }
+
+                default:
+                    return new Note(def.Description, _palette.HudText);
+            }
+        }
+
+        /// <summary>What a built machine's facing means to it: a sorter's filtered shape leaves by it, a
+        /// turret's barrel rests on it, a drill pushes onto it and a pipe carries across in it. The hubs
+        /// that read their ports off the belts around them have no facing of their own to name, and say
+        /// so - the same rule the ghost draws its arrow by, <see cref="MachineDef.UsesFacing"/>.</summary>
+        private string FacingNote(in MachineSnapshot machine)
+        {
+            MachineDef def = _world.Content.Machine(machine.Build);
+            if (!def.UsesFacing) return "ports read off the belts around it";
+
+            switch (machine.Behavior)
+            {
+                case BehaviorKind.Turret: return "barrel rests " + DirName(machine.Direction);
+                case BehaviorKind.Sorter: return Glyph(def.Filter) + " leaves " + DirName(machine.Direction);
+                default: return "facing " + DirName(machine.Direction);
+            }
+        }
+
+        /// <summary>The sides a machine's belts wire it to: a belt pointing in is an input and a belt
+        /// pointing away is an output, both masks straight off <see cref="MachineSnapshot"/>.</summary>
+        private string Ports(in MachineSnapshot machine)
+            => machine.InMask.IsEmpty && machine.OutMask.IsEmpty
+                ? "no belts wired — a belt pointing in feeds it, one pointing away empties it"
+                : "in " + Dirs(machine.InMask) + "  ·  out " + Dirs(machine.OutMask);
+
+        private static string Dirs(DirMask mask)
+        {
+            var text = new StringBuilder();
+            for (int i = 0; i < 4; i++)
+            {
+                var direction = (Dir)i;
+                if (!mask.Has(direction)) continue;
+
+                if (text.Length > 0) text.Append(", ");
+                text.Append(DirName(direction));
+            }
+
+            return text.Length == 0 ? "none" : text.ToString();
         }
 
         private Color CategoryColor(BuildKind kind)
@@ -658,7 +1006,7 @@ namespace Facet.Game
 
         private void EnsureStyles()
         {
-            float s = Mathf.Clamp(Screen.height / 720f, 0.8f, 2.2f);
+            float s = HudLayout.Scale(Screen.height);
             if (_title != null && Mathf.Abs(s - _stylesScale) < StyleScaleTolerance) return;
 
             _stylesScale = s;

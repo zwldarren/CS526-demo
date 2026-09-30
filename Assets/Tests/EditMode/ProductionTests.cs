@@ -294,9 +294,8 @@ namespace Facet.Tests
             world.Patches.Set(new Int2(3, 10), ShapeType.Circle);
 
             // A drag aims: the machine lands where the press was and faces the way the drag went.
-            world.Tick(new InputCommand(true, false, new Int2(3, 10),
-                primaryPressed: true, selected: BuildKind.Drill));
-            world.Tick(new InputCommand(true, false, new Int2(6, 10)));
+            world.Tick(new InputCommand(true, false, new Int2(3, 10), selected: BuildKind.Drill));
+            world.Tick(new InputCommand(true, false, new Int2(6, 10), selected: BuildKind.Drill));
             world.Tick(new InputCommand(false, false, new Int2(6, 10), primaryReleased: true, selected: BuildKind.Drill));
 
             Assert.IsTrue(world.Machines.Has(new Int2(3, 10)), "the drill landed on the press cell");
@@ -307,8 +306,7 @@ namespace Facet.Tests
             world.Tick(new InputCommand(cursorCell: new Int2(0, 0), selected: BuildKind.Cannon, rotateSteps: 1));
             Assert.AreEqual(Dir.South, world.PlacementDirection, "one clockwise step from the default east");
 
-            world.Tick(new InputCommand(true, false, new Int2(16, 10),
-                primaryPressed: true, selected: BuildKind.Cannon));
+            world.Tick(new InputCommand(true, false, new Int2(16, 10), selected: BuildKind.Cannon));
             world.Tick(new InputCommand(false, false, new Int2(16, 10), primaryReleased: true, selected: BuildKind.Cannon));
 
             Assert.AreEqual(Dir.South, Sim.MachineAt(world, new Int2(16, 10)).Direction);

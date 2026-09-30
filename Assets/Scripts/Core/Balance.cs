@@ -6,10 +6,11 @@ namespace Facet.Core
     ///
     /// Everything else that used to live in this file - build costs, turret and enemy stats, the
     /// machine table, the decomposer recipe - now lives in <see cref="ContentDatabase"/>, the single
-    /// source of truth the simulation, the view and the Editor asset all read. The methods below are a
-    /// facade over the shipped table (<see cref="ContentDatabase.Default"/>) for the call sites that
-    /// predate it; new code should take a <see cref="ContentDatabase"/> and read it directly, which is
-    /// what lets a test or a replay run against a different, still-reproducible table.
+    /// source of truth the simulation, the view and the Editor asset all read. What is left here is
+    /// the three physics constants above, plus a facade over the shipped table
+    /// (<see cref="ContentDatabase.Default"/>) that the EditMode tests read their numbers from; new
+    /// code should take a <see cref="ContentDatabase"/> and read it directly, which is what lets a
+    /// test or a replay run against a different, still-reproducible table.
     /// </summary>
     public static class Balance
     {
