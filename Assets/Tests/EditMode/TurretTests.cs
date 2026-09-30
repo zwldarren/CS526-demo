@@ -106,6 +106,52 @@ namespace Facet.Tests
         }
 
         [Test]
+public void EnemyWeakness_ControlsHowMuchDamageAShapeDeals()
+{
+    SimWorld matching = Sim.NewEnduringWorld(W, H);
+
+    int matchingId = matching.Enemies.Spawn(
+        EnemyKind.Spike,
+        new Vec2(13.5f, 10.5f)
+    );
+
+    float startingHp = matching.Enemies.EnemyAt(0).Hp;
+
+    matching.Enemies.ApplyDamage(
+        matchingId,
+        3f,
+        ShapeType.HalfCircle
+    );
+
+    Assert.AreEqual(
+        startingHp - 3f,
+        matching.Enemies.EnemyAt(0).Hp,
+        Sim.Tol,
+        "The Spike's half-circle weakness should take full damage."
+    );
+
+    SimWorld resistant = Sim.NewEnduringWorld(W, H);
+
+    int resistantId = resistant.Enemies.Spawn(
+        EnemyKind.Spike,
+        new Vec2(13.5f, 10.5f)
+    );
+
+    resistant.Enemies.ApplyDamage(
+        resistantId,
+        3f,
+        ShapeType.HalfSquare
+    );
+
+    Assert.AreEqual(
+        startingHp - 0.75f,
+        resistant.Enemies.EnemyAt(0).Hp,
+        Sim.Tol,
+        "Nonmatching ammunition should deal half damage."
+    );
+}
+
+        [Test]
         public void WrongShapeDelivery_JamsTheSegment_AndClearingItRestoresTheLine()
         {
             SimWorld world = CannonWorld();

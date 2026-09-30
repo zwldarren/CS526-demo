@@ -148,35 +148,38 @@ namespace Facet.Core
                 }
             }
         }
+/// <summary>
+/// Applies damage based on whether the projectile's ammunition matches
+/// the enemy's weakness.
+/// </summary>
+public void ApplyDamage(int id, float baseDamage, ShapeType ammo)
+{
+    if (!_slotById.TryGetValue(id, out int slot))
+        return;
 
-        /// <summary>
-        /// Apply one shot's damage. A shot always carries the shape its turret eats, so it always
-        /// arrives with the shape the enemy is weak to: a wrong-shape line jams before it ever fires,
-        /// which is the whole reason the shape decides what a kill costs.
-        /// </summary>
-        public void ApplyDamage(int id, float baseDamage)
-        {
-            if (!_slotById.TryGetValue(id, out int slot)) return;
+    float multiplier = ammo == _enemies[slot].Weakness
+        ? Balance.WeaknessDamageMultiplier
+        : Balance.ResistantDamageMultiplier;
 
-            _enemies[slot].Hp -= baseDamage;
+    float damage = baseDamage * multiplier;
+    _enemies[slot].Hp -= damage;
 
-            // Read what the report needs *before* RemoveAt, which reorders the array it would be read
-            // from: the kind and the position are gone the moment the enemy is.
-            bool killed = _enemies[slot].Hp <= 0f;
-            EnemyKind kind = _enemies[slot].Kind;
-            Vec2 position = _enemies[slot].Position;
+    // Read these values before RemoveAt potentially rearranges the array.
+    bool killed = _enemies[slot].Hp <= 0f;
+    EnemyKind kind = _enemies[slot].Kind;
+    Vec2 position = _enemies[slot].Position;
 
-            if (killed)
-            {
-                _events.EnemyKilled(id, kind, position);
-                RemoveAt(slot);
-            }
-            else
-            {
-                _events.EnemyDamaged(id, kind, position, baseDamage);
-            }
-        }
-
+    if (killed)
+    {
+        _events.EnemyKilled(id, kind, position);
+        RemoveAt(slot);
+    }
+    else
+    {
+        _events.EnemyDamaged(id, kind, position, damage);
+    }
+}
+      
         /// <summary>One enemy by slot, for a reader that wants a single slot. Returns a copy on
         /// purpose: nobody may hold a reference into an array that kills reorder.</summary>
         public EnemyState EnemyAt(int index) => _enemies[index];

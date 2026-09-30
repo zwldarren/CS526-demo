@@ -43,9 +43,9 @@ namespace Facet.Tests
         [Test]
         public void TheSecondChain_RunsFromAPatch_ToAKill()
         {
-            // Mine a square, split it, belt the halves, fire one: the whole chain, headless. One shell
-            // is 6 damage against a Spike's 6 HP, which is the design point of the second gun - half as
-            // many items per kill as the cannon, out of a slower barrel.
+            // Mine a square, split it, belt the halves and fire them through the whole chain.
+            // A Spike is weak to half-circles, so half-square shells deal quarter damage.
+// Four 1.5-damage shells are required to defeat its 6 HP.
             SimWorld world = SecondChain();
             Assert.Greater(world.Enemies.Spawn(EnemyKind.Spike, new Vec2(14.5f, 9.5f)), 0);
 
@@ -53,7 +53,8 @@ namespace Facet.Tests
 
             Assert.AreEqual(0, world.Enemies.AliveCount, "the mortar brought the spike down");
             Assert.AreEqual(1, world.Events.CountOf(SimEventKind.EnemyKilled));
-            Assert.AreEqual(1, world.Events.CountOf(SimEventKind.ShotFired), "with one shell");
+         Assert.AreEqual(4, world.Events.CountOf(SimEventKind.ShotFired),
+    "four resisted half-square shells were required");
         }
 
         [Test]

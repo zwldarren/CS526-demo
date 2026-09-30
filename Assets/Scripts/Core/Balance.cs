@@ -25,6 +25,12 @@ namespace Facet.Core
         /// leave a projectile flying forever.</summary>
         public static readonly float ProjectileMaxLifetime = 6f;
 
+        /// <summary>Shots matching an enemy's weakness deal their full listed damage.</summary>
+        public const float WeaknessDamageMultiplier = 1f;
+
+        /// <summary>Shots that do not match the enemy's weakness deal reduced damage.</summary>
+        public const float ResistantDamageMultiplier = 0.25f;
+
         private static ContentDatabase Content => ContentDatabase.Default;
 
         private static RecipeDef DecomposeRecipe => Content.Recipe(ContentDatabase.DecomposeRecipeId);
