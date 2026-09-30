@@ -220,9 +220,12 @@ fell behind" rather than guessing.
 | PlayMode smoke | `Assets/Tests/PlayMode` | the shipped scene boots with its Palette and content asset wired, the driver builds every view, advances the world across frames, and draws real geometry for what is on the map; a Sprite override reaches the view; a kill leaves a burst that then fades; clearing a map loads the next one under the same views - 9 total |
 
 ```bash
-# EditMode + PlayMode, headless:
-"D:/Program Files/Unity Editor/6000.3.23f1/Editor/Unity.exe" -batchmode -nographics \
-  -projectPath . -runTests -testPlatform EditMode -testResults Logs/editmode.xml -logFile Logs/editmode.log
+# EditMode + PlayMode, headless, on either dev machine (Tools/locate-unity.sh finds the Editor, from
+# its own EditorInstance.json or from the Unity Hub's install folders):
+bash Tools/test.sh                 # both suites; `bash Tools/test.sh EditMode` is the fast loop
+
+# Compile Core and Game without the Editor at all (~20s) - the check before a full run:
+bash Tools/check.sh
 ```
 
 The balance tests are the ones to read first: `ScenarioTests.MapOne_HoldsItsWave_OnARealEconomy`
