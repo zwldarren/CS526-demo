@@ -56,6 +56,43 @@ namespace Facet.Tests
         }
 
         [Test]
+public void QuarryUsesOneEnemyType_AndFoundryUsesBoth()
+{
+    MapDefinition quarry = Maps.All[0];
+    MapDefinition foundry = Maps.All[1];
+
+    int quarrySpikes = 0;
+    int quarryBulwarks = 0;
+
+    foreach (WaveDefinition wave in quarry.Waves)
+    {
+        quarrySpikes += wave.CountOf(EnemyKind.Spike);
+        quarryBulwarks += wave.CountOf(EnemyKind.Bulwark);
+    }
+
+    int foundrySpikes = 0;
+    int foundryBulwarks = 0;
+
+    foreach (WaveDefinition wave in foundry.Waves)
+    {
+        foundrySpikes += wave.CountOf(EnemyKind.Spike);
+        foundryBulwarks += wave.CountOf(EnemyKind.Bulwark);
+    }
+
+    Assert.Greater(quarrySpikes, 0,
+        "Quarry should contain Spike enemies.");
+
+    Assert.AreEqual(0, quarryBulwarks,
+        "Quarry should remain a simple tutorial with only Spike enemies.");
+
+    Assert.Greater(foundrySpikes, 0,
+        "Foundry should contain Spike enemies.");
+
+    Assert.Greater(foundryBulwarks, 0,
+        "Foundry should contain Bulwark enemies.");
+}
+
+        [Test]
         public void TheTutorialMap_MinesOneMineral_AndTheSecondMap_MinesBoth()
         {
             // Progression in the ground itself: map 1 teaches one chain with one mineral, and map 2

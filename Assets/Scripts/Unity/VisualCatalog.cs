@@ -120,12 +120,27 @@ namespace Facet.Game
 
     /// <summary>Per-enemy overrides.</summary>
     [Serializable]
-    public sealed class EnemyVisuals
-    {
-        public VisualStyle Spike = new VisualStyle();
+   public sealed class EnemyVisuals
+{
+    public VisualStyle Spike = new VisualStyle();
 
-        public VisualStyle For(EnemyKind kind) => Spike;
+    public VisualStyle Bulwark = new VisualStyle
+    {
+        Override = true,
+        Source = VisualSource.Procedural,
+        Shape = ProcShape.RegularPolygon,
+        Sides = 6,
+        Size = 0.30f,
+        Fill = new Color(0.35f, 0.55f, 0.85f, 1f),
+        Outline = new Color(0.10f, 0.15f, 0.25f, 1f),
+        OutlinePixels = 3f,
+    };
+
+    public VisualStyle For(EnemyKind kind)
+    {
+        return kind == EnemyKind.Bulwark ? Bulwark : Spike;
     }
+}
 
     /// <summary>Per-building overrides. Belts are not here: they are strips, not a single body, and
     /// the Palette's own belt look already covers them.</summary>

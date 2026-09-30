@@ -10,5 +10,6 @@ namespace Facet.Core
         /// <summary>Fast, light, weak to ◠. Two cannon shots bring one down, so the question is
         /// only how fast the line behind the cannon can feed it.</summary>
         Spike = 0,
+        Bulwark = 1,
     }
 }

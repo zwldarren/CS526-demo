@@ -467,16 +467,24 @@ namespace Facet.Core
                 new TurretDef(BuildKind.Mortar, "Mortar", ShapeType.HalfSquare,
                     fireInterval: 1.5f, damage: 6f, range: 9f, projectileSpeed: 12f),
             };
+var enemies = new[]
+{
+    // Fast, light enemy best handled by half-circle ammunition.
+    new EnemyDef(new ContentId("spike"), EnemyKind.Spike, "Spike",
+        hp: 6f,
+        speed: 1.5f,
+        coreDamage: 6f,
+        attackInterval: 1f,
+        weakness: ShapeType.HalfCircle),
 
-            var enemies = new[]
-            {
-                // Fast, light, weak to ◠. Two cannon shots bring one down, so the question is only how
-                // fast the line behind the cannon can feed it.
-                new EnemyDef(new ContentId("spike"), EnemyKind.Spike, "Spike",
-                    hp: 6f, speed: 1.5f, coreDamage: 6f, attackInterval: 1f,
-                    weakness: ShapeType.HalfCircle),
-            };
-
+    // Slower but more dangerous enemy best handled by half-square ammunition.
+    new EnemyDef(new ContentId("bulwark"), EnemyKind.Bulwark, "Bulwark",
+        hp: 6f,
+        speed: 1f,
+        coreDamage: 10f,
+        attackInterval: 1.25f,
+        weakness: ShapeType.HalfSquare),
+};
             return new ContentDatabase(machines, turrets, enemies, shapes, recipes);
         }
 

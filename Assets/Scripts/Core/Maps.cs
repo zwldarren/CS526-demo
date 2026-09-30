@@ -127,25 +127,22 @@ namespace Facet.Core
                     new Int2(62, 20),   // 2 East  - opened by the last wave, on purpose
                 },
                 waves: new[]
-                {
-                    // Held for the player like the Quarry's first wave, but heavier: the same lesson
-                    // at twice the volume, so a single drill-and-decomposer line is already tight.
-                    new WaveDefinition(0f,
-                        new SpawnGroup(EnemyKind.Spike, 8, 0, 2f, 2.0f),
-                        new SpawnGroup(EnemyKind.Spike, 6, 0, 22f, 1.6f)),
+{
+    // Introduces both weaknesses from different entrances at the same time.
+    new WaveDefinition(0f,
+        new SpawnGroup(EnemyKind.Spike, 8, 0, 2f, 2.0f),
+        new SpawnGroup(EnemyKind.Bulwark, 6, 1, 2f, 1.6f)),
 
-                    // The second door, and the two groups arrive together: a line sized for the first
-                    // wave holds the north group and leaks the flank.
-                    new WaveDefinition(45f,
-                        new SpawnGroup(EnemyKind.Spike, 10, 1, 0f, 1.5f),
-                        new SpawnGroup(EnemyKind.Spike, 6, 0, 8f, 1.8f)),
+    // The two enemy types arrive from different directions together.
+    new WaveDefinition(45f,
+        new SpawnGroup(EnemyKind.Bulwark, 10, 1, 0f, 1.5f),
+        new SpawnGroup(EnemyKind.Spike, 6, 0, 8f, 1.8f)),
 
-                    // Three doors, so the defence has to be a ring rather than a wall - and 50 s of
-                    // countdown is what pays for it.
-                    new WaveDefinition(50f,
-                        new SpawnGroup(EnemyKind.Spike, 12, 1, 0f, 1.3f),
-                        new SpawnGroup(EnemyKind.Spike, 8, 2, 10f, 1.5f)),
-                }),
+    // The final wave attacks from two sides and requires both ammunition routes.
+    new WaveDefinition(50f,
+        new SpawnGroup(EnemyKind.Spike, 12, 1, 0f, 1.3f),
+        new SpawnGroup(EnemyKind.Bulwark, 8, 2, 10f, 1.5f)),
+}),
         };
 
         /// <summary>Stamp a map's patches into the terrain. Called at world construction and on restart.</summary>
