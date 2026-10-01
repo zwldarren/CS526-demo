@@ -18,7 +18,10 @@ namespace Facet.EditorTools
     /// referencing it, and the scene references the Palette, so the build carries the shader through
     /// that chain (guarded by ProjectTests).
     ///
-    /// Batchmode: <c>Unity -batchmode -quit -projectPath &lt;project&gt; -executeMethod Facet.EditorTools.BuildWebGL.Build</c>
+    /// Two ways in, one implementation: <b>FACET &gt; Build WebGL</b> in the Editor, and batchmode
+    /// (<c>Unity -batchmode -quit -projectPath &lt;project&gt; -executeMethod Facet.EditorTools.BuildWebGL.Build</c>),
+    /// which is what Tools/build-webgl.sh runs and the path the build actually ships through. A
+    /// failure has to read differently to each of them - see Fail.
     /// </summary>
     public static class BuildWebGL
     {
@@ -27,8 +30,11 @@ namespace Facet.EditorTools
         /// <summary>Where the build lands. Git-ignored: it is an artefact, and Pages serves a copy.</summary>
         private const string OutputDirectory = "Builds/WebGL";
 
-        /// <summary>A build that cannot be published is not finished, so a failure exits non-zero.</summary>
+        /// <summary>A build that cannot be published is not finished, so a batchmode run exits non-zero.</summary>
         private const int FailureExitCode = 1;
+
+        /// <summary>What a failed menu build says, since a menu build has no exit code to fail with.</summary>
+        private const string FailureTitle = "FACET: WebGL build failed";
 
         [MenuItem("FACET/Build WebGL")]
         public static void Build()
@@ -50,8 +56,7 @@ namespace Facet.EditorTools
 
                 if (summary.result != BuildResult.Succeeded)
                 {
-                    Debug.LogError("FACET: WebGL build " + summary.result + " with " + summary.totalErrors + " errors.");
-                    EditorApplication.Exit(FailureExitCode);
+                    Fail("FACET: WebGL build " + summary.result + " with " + summary.totalErrors + " errors.");
                     return;
                 }
 
@@ -64,9 +69,30 @@ namespace Facet.EditorTools
             }
             catch (Exception error)
             {
-                Debug.LogError("FACET: WebGL build threw: " + error);
-                EditorApplication.Exit(FailureExitCode);
+                Fail("FACET: WebGL build threw: " + error);
             }
+        }
+
+        /// <summary>
+        /// Reports a build that produced no player, in whichever way the caller can receive it.
+        ///
+        /// One method serves two callers that want opposite things. Batchmode wants a non-zero exit
+        /// code and gets one. The menu wants anything but: EditorApplication.Exit quits the Editor on
+        /// the spot and does not offer to save, so a build that failed after the scene was edited -
+        /// which is exactly when a build is run from the menu - would take that edit down with it.
+        /// The menu gets a dialog instead, and both callers get the log line.
+        /// </summary>
+        private static void Fail(string message)
+        {
+            Debug.LogError(message);
+
+            if (Application.isBatchMode)
+            {
+                EditorApplication.Exit(FailureExitCode);
+                return;
+            }
+
+            EditorUtility.DisplayDialog(FailureTitle, message, "OK");
         }
 
         /// <summary>Compression settings a plain static host can actually serve.</summary>
