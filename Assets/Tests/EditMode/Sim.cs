@@ -19,9 +19,10 @@ namespace Facet.Tests
         public const int TestCircles = 100000;
 
         /// <summary>A featureless map of the given size: no patches, no spawn points, no waves, and
-        /// a stockpile that never runs dry. Unit tests draw their own terrain on it.</summary>
-        public static MapDefinition TestMap(int width, int height)
-            => new MapDefinition("test", width, height, TestCircles,
+        /// <paramref name="startCircles"/> banked - by default a stockpile that never runs dry. Unit
+        /// tests draw their own terrain on it.</summary>
+        public static MapDefinition TestMap(int width, int height, int startCircles = TestCircles)
+            => new MapDefinition("test", width, height, startCircles,
                 new ShapePatch[0], new Int2[0], new WaveDefinition[0]);
 
         /// <summary>A test map world. Unit tests draw their own patches and never see a wave.</summary>

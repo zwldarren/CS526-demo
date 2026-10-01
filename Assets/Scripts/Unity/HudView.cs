@@ -6,12 +6,20 @@ using UnityEngine;
 namespace Facet.Game
 {
     /// <summary>
-    /// The player's whole operating surface, laid out in four fixed regions: a status card top-left
-    /// (the map and its wave, the Core's health, the stockpile, the defence's two diagnostics and the
-    /// last second's news), a small controls card top-right, a clickable **build bar** along the
-    /// bottom, and an info card just above it that describes whichever building is hovered, selected -
-    /// or, with nothing selected, read (see <see cref="DrawInspectInfo"/>). That last state is the one a
-    /// run opens in, and the one Escape goes back to.
+    /// The player's whole operating surface: a status card top-left (the map and its wave, the Core's
+    /// health, the defence's two diagnostics and the last second's news), the **stockpile** floating
+    /// beside it as a shape and a number with no panel of its own, a small controls card top-right, a
+    /// clickable **build bar** along the bottom, and an info card just above it that describes whichever
+    /// building is hovered, selected - or, with nothing selected, read (see
+    /// <see cref="DrawInspectInfo"/>). That last state is the one a run opens in, and the one Escape goes
+    /// back to.
+    ///
+    /// What a click gets is a **toast**: a placement the simulation refused - the stockpile is dry, the
+    /// tile is taken, the ground is wrong - arrives on the event stream as
+    /// <see cref="SimEventKind.PlacementRejected"/> with the reason, and a panel sized to that sentence
+    /// floats under the top cards for a few seconds of simulation time, fading out as it goes. The
+    /// stockpile's own number turns amber while the selected building cannot be afforded and flashes
+    /// warning-coloured while the toast is live, so what is wrong is visible before it is read.
     ///
     /// The build bar is the point of this view. Every building is a real button carrying its hotkey,
     /// its name, its role and its cost; a tile is tinted when the stockpile cannot cover it, outlined
@@ -29,7 +37,7 @@ namespace Facet.Game
     /// authoring, and a hand-authored uGUI canvas would be the one asset that has to be edited in the
     /// Editor to be changed.
     ///
-    /// The panels' geometry lives in <see cref="HudLayout"/>, because the camera rig needs the same
+    /// The pieces' geometry lives in <see cref="HudLayout"/>, because the camera rig needs the same
     /// numbers.
     /// </summary>
     [DefaultExecutionOrder(200)]
@@ -41,6 +49,13 @@ namespace Facet.Game
         /// <summary>The window the "last second" line reports over: one second, in ticks, so the
         /// numbers a player steers by are a rate rather than a running total.</summary>
         private static readonly int RecentTicks = (int)SimConfig.TickRate;
+
+        /// <summary>How long a refused placement stays on the resource band, in ticks: long enough to
+        /// read the answer after the click, short enough that it describes the click just made.</summary>
+        private static readonly int RefusalTicks = (int)(SimConfig.TickRate * 3f);
+
+        /// <summary>The fraction of the refusal's window spent fading out rather than holding.</summary>
+        private const float RefusalFade = 0.35f;
 
         private SimWorld _world;
         private Palette _palette;
@@ -57,12 +72,15 @@ namespace Facet.Game
         private GUIStyle _labelCenter;
         private GUIStyle _small;
         private GUIStyle _smallRight;
+        private GUIStyle _costRight;
         private GUIStyle _tiny;
         private GUIStyle _tinyRight;
         private GUIStyle _tinyCenter;
         private GUIStyle _wrap;
         private GUIStyle _button;
         private GUIStyle _banner;
+        private GUIStyle _resource;
+        private GUIStyle _alert;
 
         private float _stylesScale = -1f;
 
@@ -123,9 +141,12 @@ namespace Facet.Game
             // The HUD owns its panels: the pointer being over one is reported to the input source, so a
             // click on a button cannot also build under it. OnGUI runs after the driver's Update, so
             // this describes the panel under the pointer as of the previous frame - a frame of lag on a
-            // pointer that has to travel to the button anyway.
-            PointerOverHud = PointerOver(status) || PointerOver(controls) || PointerOver(bar) || PointerOver(info);
+            // pointer that has to travel to the button anyway. The stockpile readout and the toast are
+            // not panels: they are read, never clicked, so a click goes through them to the map.
+            PointerOverHud = PointerOver(status) || PointerOver(controls) ||
+                             PointerOver(bar) || PointerOver(info);
 
+            DrawStockpile(HudLayout.Stockpile(Screen.width, s), s);
             DrawStatus(status, s);
             DrawControls(controls, s);
 
@@ -135,14 +156,126 @@ namespace Facet.Game
             DrawInfo(info, s);
 
             DrawBanner(s);
+            DrawToast(s);
+        }
+
+        // ------------------------------------------------------------------ stockpile and toast
+
+        /// <summary>
+        /// The stockpile, floating beside the status card in the largest type on screen: the shape the
+        /// run banks, in that shape's own colour, and how many of it there are. No panel behind it and no
+        /// label - it is the economy's one number, and the card it sits against already says what the
+        /// game is about.
+        ///
+        /// It reads rather than shouts. The number turns amber while the selected building cannot be
+        /// afforded and warning-coloured while a refusal is on screen, and the toast below it says what
+        /// went wrong; the readout itself stays two pieces of information wide.
+        /// </summary>
+        private void DrawStockpile(Rect panel, float s)
+        {
+            BuildKind? selected = _world.SelectedKind;
+            Color numberColour = _palette.Outline;
+            if (selected.HasValue && !_world.Economy.CanAfford(selected.Value))
+                numberColour = _palette.CursorNoFunds;
+            if (TryLastRefusal(out SimEvent refusal))
+                numberColour = WithAlpha(_palette.HudWarn, RefusalFadeOf(_world.TickCount - refusal.Tick));
+
+            string count = _world.Economy.Circles.ToString();
+            Label(panel, count, numberColour, _resource);
+
+            // The shape follows the number rather than sitting in a column of its own: the readout grows
+            // to the right as the stockpile grows, and stays glued to the card either way.
+            float used = _resource.CalcSize(new GUIContent(count)).x;
+            float glyphX = panel.x + used + 6f * s;
+            if (glyphX >= panel.xMax) return;
+
+            Label(new Rect(glyphX, panel.y, panel.xMax - glyphX, panel.height),
+                Glyph(ShapeType.Circle), _palette.ShapeColor(ShapeType.Circle), _resource);
+        }
+
+        /// <summary>
+        /// The last refused placement, as a toast: what the player tried to build, what it costs, and
+        /// what is in the way - printed beside the stockpile it is about, over the map, for as long as the
+        /// click is worth explaining.
+        ///
+        /// It has no state of its own. The refusal is read off the event stream by
+        /// <see cref="TryLastRefusal"/> and faded by its own tick, so there is no timer to reset, a
+        /// restart leaves nothing behind, and a paused run simply holds the message until the clock moves
+        /// again.
+        /// </summary>
+        private void DrawToast(float s)
+        {
+            if (!TryLastRefusal(out SimEvent refusal)) return;
+
+            float fade = RefusalFadeOf(_world.TickCount - refusal.Tick);
+            string text = RefusalText(refusal);
+
+            float padding = 14f * s;
+            Vector2 textSize = _alert.CalcSize(new GUIContent(text));
+            float width = Mathf.Min(textSize.x + 2f * padding, Screen.width - 2f * HudLayout.Margin * s);
+            float height = textSize.y + 16f * s;
+
+            Rect toast = HudLayout.Toast(Screen.width, s, width, height);
+            Fill(toast, WithAlpha(_palette.HudPanel, fade));
+            Border(toast, WithAlpha(_palette.HudWarn, fade), 2f * s);
+            Label(toast, text, WithAlpha(_palette.HudWarn, fade), _alert);
+        }
+
+        /// <summary>The last refused placement, if it is still inside the window it is shown for.</summary>
+        private bool TryLastRefusal(out SimEvent refusal)
+        {
+            if (!_world.Events.TryLast(SimEventKind.PlacementRejected, out refusal)) return false;
+
+            int age = _world.TickCount - refusal.Tick;
+            return age >= 0 && age < RefusalTicks;
+        }
+
+        /// <summary>Full strength for most of the window, then out: the message is read in the second
+        /// after the click, and the fade is only there so it does not disappear between two blinks.</summary>
+        private static float RefusalFadeOf(int age)
+        {
+            float holding = RefusalTicks * (1f - RefusalFade);
+            return age <= holding ? 1f : Mathf.Clamp01((RefusalTicks - age) / (RefusalTicks * RefusalFade));
+        }
+
+        /// <summary>Why the placement was refused, in the terms the player used: what they tried to
+        /// build, what it costs, and what is in the way.</summary>
+        private string RefusalText(in SimEvent refusal)
+        {
+            MachineDef def = _world.Content.Machine(refusal.Building);
+
+            switch (refusal.Reason)
+            {
+                case RejectionReason.NoFunds:
+                    return "NOT ENOUGH " + Glyph(ShapeType.Circle) + " — " + def.Name + " costs " +
+                           Mathf.RoundToInt(refusal.Amount) + ", you have " + _world.Economy.Circles;
+                case RejectionReason.Occupied:
+                    return "BLOCKED — something already stands on " + refusal.Cell;
+                case RejectionReason.BadGround:
+                    return def.Tile == TileKind.Drill
+                        ? "NO ORE — a drill mines only the patch it stands on"
+                        : "ON ORE — only a drill may stand on a patch";
+                default:
+                    return "OFF THE MAP — nothing can be built on " + refusal.Cell;
+            }
         }
 
         // ------------------------------------------------------------------ status
 
         private void DrawStatus(Rect panel, float s)
         {
+            // The card's two diagnostics are read before it is drawn, because the stripe down its left
+            // edge reports them: a card with a jam in it, or a defence that cannot shoot, stops being
+            // accent-coloured and turns warning-coloured - the one thing on the HUD that says "read me"
+            // without being read.
+            _world.CountTurrets(out int total, out int armed);
+            bool starved = armed < total;
+            int jams = _world.JamCount;
+            bool hurting = _world.Core.HealthFraction <= 0.4f;
+
             Panel(panel);
-            Fill(new Rect(panel.x, panel.y, 3f * s, panel.height), _palette.HudAccent);
+            Fill(new Rect(panel.x, panel.y, 3f * s, panel.height),
+                jams > 0 || starved || hurting ? _palette.HudWarn : _palette.HudAccent);
 
             Rect line = new Rect(panel.x + 14f * s, panel.y + 10f * s, panel.width - 28f * s, 22f * s);
             Label(line, TitleLine(), _palette.HudAccent, _title);
@@ -151,19 +284,13 @@ namespace Facet.Game
             DrawHealthBar(new Rect(line.x, line.y, line.width, 16f * s), s);
             line.y += 24f * s;
 
-            // The economy's one number, with the reminder of how it grows: circles banked by
-            // belting them home, not mined into the pocket.
-            Label(line, "stockpile " + _world.Economy.Circles + " " + Glyph(ShapeType.Circle) +
-                    "   ·   belt circles into the core to bank them", _palette.HudAccent, _small);
-            line.y += 20f * s;
-
-            _world.CountTurrets(out int total, out int armed);
-            bool starved = armed < total;
+            // The stockpile used to be the first line here. It lives in the resource band above now -
+            // it is the economy's one number and the thing a refusal is about, so it is too important
+            // to be the third line of a card.
             Label(line, "turrets armed " + armed + " / " + total + (starved ? "   (a starved turret's icon is grey)" : ""),
                 starved ? _palette.HudWarn : _palette.HudGood, _small);
             line.y += 20f * s;
 
-            int jams = _world.JamCount;
             Label(line, jams == 0
                     ? "no jammed segments"
                     : jams + " jammed segment" + (jams == 1 ? "" : "s") + "   [RMB clears one]",
@@ -394,6 +521,7 @@ namespace Facet.Game
             Color fill = _palette.HudPanel;
             if (selected) fill = Blend(_palette.HudPanel, category, 0.18f);
             else if (hovered) fill = Blend(_palette.HudPanel, _palette.HudText, 0.10f);
+            else if (!affordable) fill = Blend(_palette.HudPanel, _palette.CursorNoFunds, 0.12f);
             Fill(rect, fill);
 
             Fill(new Rect(rect.x, rect.y, rect.width, 3f * s),
@@ -405,10 +533,13 @@ namespace Facet.Game
             Label(new Rect(rect.x + 8f * s, rect.y + 9f * s, 26f * s, 15f * s), ((index + 1) % 10).ToString(),
                 selected ? _palette.HudAccent : _palette.MachineIdle, _small);
 
+            // The cost is the line that answers "can I afford this", so it is the line that turns amber
+            // and bold when the answer is no - the same colour the cursor ghost and the resource band
+            // use for the same fact.
             Label(new Rect(rect.x, rect.y + 9f * s, rect.width - 8f * s, 15f * s),
                 def.Cost + " " + Glyph(ShapeType.Circle),
                 affordable ? (selected ? _palette.HudText : _palette.MachineIdle) : _palette.CursorNoFunds,
-                _smallRight);
+                affordable ? _smallRight : _costRight);
 
             Label(new Rect(rect.x + 4f * s, rect.y + 27f * s, rect.width - 8f * s, 20f * s), def.Name,
                 affordable ? _palette.HudText : _palette.MachineIdle, _labelCenter);
@@ -1034,25 +1165,33 @@ namespace Facet.Game
 
             _stylesScale = s;
 
-            _title = MakeStyle(15, FontStyle.Bold, TextAnchor.UpperLeft, wrap: false);
-            _labelCenter = MakeStyle(13, FontStyle.Bold, TextAnchor.MiddleCenter, wrap: false);
-            _small = MakeStyle(12, FontStyle.Normal, TextAnchor.UpperLeft, wrap: false);
-            _smallRight = MakeStyle(12, FontStyle.Normal, TextAnchor.UpperRight, wrap: false);
-            _tiny = MakeStyle(11, FontStyle.Normal, TextAnchor.UpperLeft, wrap: false);
-            _tinyRight = MakeStyle(11, FontStyle.Normal, TextAnchor.UpperRight, wrap: false);
-            _tinyCenter = MakeStyle(10, FontStyle.Bold, TextAnchor.MiddleCenter, wrap: false);
-            _wrap = MakeStyle(11, FontStyle.Normal, TextAnchor.UpperLeft, wrap: true);
-            _button = MakeStyle(13, FontStyle.Bold, TextAnchor.MiddleCenter, wrap: false);
-            _banner = MakeStyle(22, FontStyle.Bold, TextAnchor.MiddleCenter, wrap: true);
+            _title = MakeStyle(15, s, FontStyle.Bold, TextAnchor.UpperLeft, wrap: false);
+            _labelCenter = MakeStyle(13, s, FontStyle.Bold, TextAnchor.MiddleCenter, wrap: false);
+            _small = MakeStyle(12, s, FontStyle.Normal, TextAnchor.UpperLeft, wrap: false);
+            _smallRight = MakeStyle(12, s, FontStyle.Normal, TextAnchor.UpperRight, wrap: false);
+            _costRight = MakeStyle(12, s, FontStyle.Bold, TextAnchor.UpperRight, wrap: false);
+            _tiny = MakeStyle(11, s, FontStyle.Normal, TextAnchor.UpperLeft, wrap: false);
+            _tinyRight = MakeStyle(11, s, FontStyle.Normal, TextAnchor.UpperRight, wrap: false);
+            _tinyCenter = MakeStyle(10, s, FontStyle.Bold, TextAnchor.MiddleCenter, wrap: false);
+            _wrap = MakeStyle(11, s, FontStyle.Normal, TextAnchor.UpperLeft, wrap: true);
+            _button = MakeStyle(13, s, FontStyle.Bold, TextAnchor.MiddleCenter, wrap: false);
+            _banner = MakeStyle(22, s, FontStyle.Bold, TextAnchor.MiddleCenter, wrap: true);
+
+            // The stockpile is the number the game is played against, so it is the largest thing the
+            // HUD draws; a toast is the loudest thing it says, in bold, on its own panel.
+            _resource = MakeStyle(26, s, FontStyle.Bold, TextAnchor.MiddleLeft, wrap: false);
+            _alert = MakeStyle(15, s, FontStyle.Bold, TextAnchor.MiddleCenter, wrap: false);
         }
 
         /// <summary>Text colour is applied per label through GUI.contentColor, so every style's own
-        /// colour is white and no per-frame style clones are needed.</summary>
-        private static GUIStyle MakeStyle(int size, FontStyle font, TextAnchor anchor, bool wrap)
+        /// colour is white and no per-frame style clones are needed. The font scales with the panels -
+        /// one <see cref="HudLayout.Scale"/> for both, or a 4K screen would be a big box of small
+        /// text.</summary>
+        private static GUIStyle MakeStyle(int size, float s, FontStyle font, TextAnchor anchor, bool wrap)
         {
             return new GUIStyle(GUI.skin.label)
             {
-                fontSize = size,
+                fontSize = Mathf.Max(8, Mathf.RoundToInt(size * s)),
                 fontStyle = font,
                 alignment = anchor,
                 wordWrap = wrap,
@@ -1116,5 +1255,10 @@ namespace Facet.Game
         }
 
         private static Color Blend(Color from, Color to, float t) => Color.Lerp(from, to, t);
+
+        /// <summary>The same colour, faded: what a refusal and the number it is about are drawn with
+        /// while they age out.</summary>
+        private static Color WithAlpha(Color colour, float alpha)
+            => new Color(colour.r, colour.g, colour.b, colour.a * alpha);
     }
 }

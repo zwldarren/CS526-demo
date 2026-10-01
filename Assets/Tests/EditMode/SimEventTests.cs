@@ -192,6 +192,94 @@ namespace Facet.Tests
         }
 
         [Test]
+        public void ARefusedPlacement_ReportsWhy_TheClickThatBuiltNothing()
+        {
+            // The click the player complains about: the stockpile cannot cover a belt, so nothing
+            // appears on the map. Silence there reads as a broken button, so the tick reports the
+            // refusal with the reason and the price - which is what lets the HUD say "not enough
+            // circles" instead of saying nothing at all.
+            SimWorld world = BrokeWorld();
+            Click(world, new Int2(2, 2), BuildKind.Belt);
+
+            Assert.IsFalse(world.Belts.Has(new Int2(2, 2)), "nothing was built");
+            Assert.IsTrue(world.Events.TryLast(SimEventKind.PlacementRejected, out SimEvent refusal),
+                "and the click said why");
+            Assert.AreEqual(RejectionReason.NoFunds, refusal.Reason);
+            Assert.AreEqual(new Int2(2, 2), refusal.Cell);
+            Assert.AreEqual(BuildKind.Belt, refusal.Building);
+            Assert.AreEqual(world.Economy.CostOf(BuildKind.Belt), refusal.Amount, Sim.Tol,
+                "the price it could not pay");
+        }
+
+        [Test]
+        public void ARefusedPlacement_NamesTheTileOrTheGround_NotJustNo()
+        {
+            // Funded, so every refusal here is about the map rather than the money - and "blocked"
+            // and "wrong ground" are different problems with different fixes.
+            SimWorld world = Sim.NewWorld(16, 10);
+            var ore = new Int2(4, 4);
+            world.Patches.Set(ore, ShapeType.Circle);
+
+            Click(world, ore, BuildKind.Cannon);                       // a machine on a vein
+            Assert.IsTrue(world.Events.TryLast(SimEventKind.PlacementRejected, out SimEvent onOre));
+            Assert.AreEqual(RejectionReason.BadGround, onOre.Reason);
+            Assert.AreEqual(ore, onOre.Cell);
+            Assert.AreEqual(BuildKind.Cannon, onOre.Building);
+
+            Click(world, world.Core.Cell, BuildKind.Belt);             // the Core is occupied ground
+            Assert.IsTrue(world.Events.TryLast(SimEventKind.PlacementRejected, out SimEvent onCore));
+            Assert.AreEqual(RejectionReason.Occupied, onCore.Reason);
+
+            Click(world, new Int2(-2, 5), BuildKind.Belt);             // the background past the edge
+            Assert.IsTrue(world.Events.TryLast(SimEventKind.PlacementRejected, out SimEvent offMap));
+            Assert.AreEqual(RejectionReason.OffMap, offMap.Reason);
+
+            Assert.AreEqual(0, world.Events.CountOf(SimEventKind.Built), "and none of them built anything");
+        }
+
+        [Test]
+        public void ADragThatRunsDry_StopsQuietly_BecauseTheRunShowsWhereItStopped()
+        {
+            // The boundary of the reporting above. The cells a belt *drag* sweeps are skipped like
+            // blocked ones - a run that stops growing at a dry stockpile is visible on the map, and a
+            // drag across an existing build must not shout once per cell.
+            SimWorld world = BrokeWorld(circles: 2);
+            Sim.Drag(world, new Int2(1, 1), new Int2(6, 1));
+
+            Assert.IsTrue(world.Belts.Has(new Int2(1, 1)), "the run got its two cells");
+            Assert.IsTrue(world.Belts.Has(new Int2(2, 1)));
+            Assert.IsFalse(world.Belts.Has(new Int2(3, 1)), "and stopped when the stockpile did");
+            Assert.AreEqual(0, world.Economy.Circles);
+            Assert.AreEqual(0, world.Events.CountOf(SimEventKind.PlacementRejected),
+                "the cells the drag swept are skipped, not reported");
+        }
+
+        [Test]
+        public void ASuccessfulPlacement_ReportsOnlyTheBuild()
+        {
+            SimWorld world = Sim.NewWorld(16, 10);
+            world.Events.Clear();
+
+            Click(world, new Int2(2, 8), BuildKind.Belt);
+
+            Assert.IsTrue(world.Belts.Has(new Int2(2, 8)), "the click placed its belt");
+            Assert.AreEqual(1, world.Events.CountOf(SimEventKind.Built));
+            Assert.AreEqual(0, world.Events.CountOf(SimEventKind.PlacementRejected), "no refusal to report");
+        }
+
+        /// <summary>A press and release on one cell - what a click is, as far as the tick is
+        /// concerned.</summary>
+        private static void Click(SimWorld world, Int2 cell, BuildKind kind)
+        {
+            world.Tick(new InputCommand(true, false, cell, selected: kind));
+            world.Tick(new InputCommand(false, false, cell, primaryReleased: true, selected: kind));
+        }
+
+        /// <summary>A world with next to nothing to spend - the state "not enough circles" is about.</summary>
+        private static SimWorld BrokeWorld(int circles = 0)
+            => new SimWorld(Sim.TestMap(16, 10, circles), new SimConfig());
+
+        [Test]
         public void TwoIdenticalRuns_ReportIdenticalStreams()
         {
             // Derived or not, the stream has to be a function of the run: a replay that drives sound

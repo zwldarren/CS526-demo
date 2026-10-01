@@ -16,6 +16,14 @@ namespace Facet.Core
     /// <see cref="DominantDirection"/>, as does the belt walk, so a run drawn out of a machine leaves
     /// along the side <see cref="PointMachineAtTheRun"/> turned that machine to.
     ///
+    /// A press that never moved still places: a belt click lays the one cell under the cursor, facing the
+    /// ghost, and a machine click lands where it was aimed. And when that placement is refused - the
+    /// stockpile is dry, the tile is taken, the ground is wrong - the gesture reports it on
+    /// <see cref="SimEventBuffer"/> rather than returning false into the void, because a click that
+    /// quietly does nothing reads as a broken game. The cells a belt *drag* sweeps over are the
+    /// exception: a run that stops growing at a dry stockpile is visible on the map, so those stay
+    /// silent rather than shouting once per cell.
+    ///
     /// What is being built is decided by the press and does not change until the button comes up, so a
     /// selection change under the player's hand cannot turn "aim a drill" into "pave from here".
     /// </summary>
@@ -43,6 +51,11 @@ namespace Facet.Core
         private Int2 _dragCell;
         private bool _dragCellIsOurs;
         private Int2 _lastRemovedCell;
+
+        /// <summary>Whether the gesture in progress has put a belt down anywhere. Read at the release:
+        /// a gesture that built nothing is the one that owes the player an answer, because there is no
+        /// belt on the map to explain the silence.</summary>
+        private bool _gestureLaid;
 
         public BuildKind? Selected { get; private set; }
 
@@ -95,6 +108,7 @@ namespace Facet.Core
             _dragCell = NoCell;
             _dragCellIsOurs = false;
             _lastRemovedCell = NoCell;
+            _gestureLaid = false;
         }
 
         /// <summary>Would a placement of this kind be allowed here? Structural only - whether the
@@ -125,6 +139,37 @@ namespace Facet.Core
 
             _events.Built(cell, _economy.CostOf(kind));
             return true;
+        }
+
+        /// <summary>
+        /// Place one building at a point the player named - a click, or the press cell a drag started
+        /// from - and when it is refused, say so on the stream with the reason. This is the difference
+        /// between "the click did nothing" and "the click told me why": the HUD reads the refusal and
+        /// puts it on screen.
+        ///
+        /// Only the deliberate placements come through here. The cells a belt drag merely sweeps over
+        /// go through <see cref="TryPlace"/> silently, because a run that stops growing at a dry
+        /// stockpile is the documented behaviour - the player can see where it stopped - and a drag
+        /// across an existing build must not shout once per cell.
+        /// </summary>
+        private void PlaceOrReport(BuildKind kind, Int2 cell, Dir direction)
+        {
+            if (TryPlace(kind, cell, direction)) return;
+
+            _events.PlacementRejected(cell, kind, ReasonFor(kind, cell), _economy.CostOf(kind));
+        }
+
+        /// <summary>
+        /// Why a placement was refused, read from the same rules that refused it: <see cref="CanPlace"/>
+        /// first and the stockpile second, the order <see cref="TryPlace"/> checks them in, so the reason
+        /// can never name a cause the placement did not actually fail on.
+        /// </summary>
+        private RejectionReason ReasonFor(BuildKind kind, Int2 cell)
+        {
+            if (CanPlace(kind, cell)) return RejectionReason.NoFunds;
+            if (!_grid.InBounds(cell)) return RejectionReason.OffMap;
+
+            return _grid.IsOccupied(cell) ? RejectionReason.Occupied : RejectionReason.BadGround;
         }
 
         /// <summary>
@@ -249,6 +294,7 @@ namespace Facet.Core
                 _pressCell = cmd.CursorCell;
                 _dragCell = cmd.CursorCell;
                 _dragCellIsOurs = _belts.Has(cmd.CursorCell);
+                _gestureLaid = false;
             }
 
             if (_dragging && cmd.BuildHeld && cmd.CursorCell != _dragCell)
@@ -273,14 +319,27 @@ namespace Facet.Core
             bool released = cmd.PrimaryReleased || (_dragging && !cmd.BuildHeld);
             if (!released) return;
 
+            bool wasDragging = _dragging;
             _dragging = false;
-            if (!_machinePress) return;
 
-            _machinePress = false;
+            if (_machinePress)
+            {
+                _machinePress = false;
 
-            // A press only ever starts with a selection (the early return above) and Select refuses a
-            // change while the gesture runs, so this is the kind the press was taken with.
-            TryPlace(Selected.Value, _pressCell, GhostDirection);
+                // A press only ever starts with a selection (the early return above) and Select refuses a
+                // change while the gesture runs, so this is the kind the press was taken with. The
+                // machine lands where the press was, and a refusal is reported rather than swallowed:
+                // a click that builds nothing has to say what stopped it.
+                PlaceOrReport(Selected.Value, _pressCell, GhostDirection);
+                return;
+            }
+
+            // A belt gesture places as it drags. A click that never walked - or a drag whose every
+            // cell was refused - still owes the player the belt it promised at the press cell, and the
+            // answer when it cannot have one. That is the click that would otherwise vanish: the
+            // stockpile is dry, the tile is taken, or the ground is wrong, and now it says so.
+            if (wasDragging && !_gestureLaid && !_belts.Has(_pressCell))
+                PlaceOrReport(BuildKind.Belt, _pressCell, GhostDirection);
         }
 
         /// <summary>
@@ -318,6 +377,8 @@ namespace Facet.Core
                 else curIsOurs = TryPlace(BuildKind.Belt, cur, dir);
 
                 bool placed = TryPlace(BuildKind.Belt, next, dir);
+
+                if (curIsOurs || placed) _gestureLaid = true;
 
                 cur = next;
                 curIsOurs = placed;

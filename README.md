@@ -22,18 +22,30 @@ shape or recipe is a row plus the enum value that names it, not a `switch` that 
 | `1`–`9`, `0` | select the same buildings by hotkey — the tenth kind, the wall, is `0`; **press the same digit again to drop the selection**, exactly as clicking the same tile twice does |
 | `Q` / `E`, or the info card's **turn** buttons | turn the placement ghost (a splitter, every converter and the wall have no facing to turn) |
 | `Esc`, or the info card's **inspect** button | drop the selection: the cursor then only **reads** — the state a run opens in |
-| left mouse | place the selected building — **drag** to lay a belt run or to aim a machine. With nothing selected the same click pins whatever is under it and the info card describes *it* |
+| left mouse | place the selected building — a click lays one belt facing the ghost, or lands the machine where it was aimed; **drag** to lay a belt run or to aim a machine. With nothing selected the same click pins whatever is under it and the info card describes *it*. A placement the run cannot pay for, or cannot make there, says so in a toast |
 | right mouse | delete what is under the cursor for a full refund; on a jammed segment it **clears the jam** instead |
 | `Space` / `P`, or the **pause** button | pause / resume |
 | `N`, or the status card's **start wave** button | start the next wave now — the first wave only ever arrives this way. Once a map is cleared it carries on to the next map instead |
 | `R`, or the **restart run** button | restart the run |
 
 The HUD is four fixed regions, all clickable: a status card top-left (map and wave, the Core's
-health, the stockpile, turret and jam diagnostics, the last second's events), a controls card
-top-right, the build bar along the bottom, and an info card above it that describes whichever
-building is hovered or selected - its cost, what it does, its numbers, and the facing its ghost will
-be built with. The bar's tiles are tinted when the stockpile cannot cover them and outlined when
-selected, so the palette doubles as an affordability readout and does not require the number keys.
+health, turret and jam diagnostics, the last second's events), a controls card top-right, the build
+bar along the bottom, and an info card above it that describes whichever building is hovered or
+selected - its cost, what it does, its numbers, and the facing its ghost will be built with. Beside
+the status card floats the **stockpile**: the shape the run banks, in that shape's own colour, and how
+many of it there are, in the largest type on screen and with no panel of its own - the one number the
+whole economy is played against, kept where the eye already is. The bar's tiles are tinted when the
+stockpile cannot cover them, their cost turning amber and bold, so the palette doubles as an
+affordability readout and does not require the number keys; the stockpile's own number turns amber
+with them. The status card's edge stripe turns from the accent colour to the warning colour whenever
+something in it needs the player: a jam, a starved turret, a leaking Core.
+
+A refused placement turns up as a **toast**. The tick reports the reason on the event stream
+(`PlacementRejected`: no funds, the tile is occupied, the ground is wrong, off the map), and a dark
+panel sized to that sentence floats under the top cards for three seconds of simulation time, fading
+out as it goes, with the stockpile flashing warning-coloured beside it. "Not enough circles" is only
+useful next to how many circles there are, and a click that quietly did nothing is the one thing that
+reads as a broken game.
 
 Nothing has to be selected, though, and the run opens that way: with no building picked the cursor
 does not preview a placement, it reads. A left click pins whatever is under it and the info card
@@ -54,8 +66,10 @@ occupy, and may then be pushed a further 5% of the screen past its own edge, so 
 rest in the open with background behind it instead of against the card that was hiding it. The last
 5% is what makes that visible at the bottom, where the build bar is as wide as the screen and as tall
 as its whole strip and would otherwise leave the map's last row pressed flat against it. `HudLayout`
-holds the panel geometry for both the HUD and `PanLimits`, and `CameraRig`'s **Edge Slack Screens** is
-that 5% - one table, drawn on and obeyed by two views.
+holds the geometry for both the HUD and `PanLimits` - the stockpile readout counts as part of the top
+strip, beside the card that strip is measured from - and `CameraRig`'s **Edge Slack Screens** is that
+5%: one table, drawn on and obeyed by two views, and pinned by a test that no piece of the HUD overlaps
+another.
 
 ## The rules the prototype is built on
 
@@ -215,15 +229,18 @@ for testing.
 The simulation reports what it does on one stream (`SimWorld.Events`): a building went up or came
 down, an enemy hit a building or finished one off, a segment jammed (and with which shape), a shot was
 fired, an enemy was hit or killed, a circle banked, the Core took damage, a wave started or was
-cleared, the run ended. Nothing in the
+cleared, a placement was refused (and why), the run ended. Nothing in the
 simulation reads it back, so it cannot change the fight it describes - which is why every reaction to
 the game hangs off it instead of off the simulation.
 
-Two things use it today. **A kill bursts**: the enemy goes white-hot when a shot lands, and leaves an
+Three things use it today. **A kill bursts**: the enemy goes white-hot when a shot lands, and leaves an
 expanding ring where it died - the first visual feedback in the project, and the reason to have a
 stream at all. **The HUD reports the last second**: circles banked, shots, kills, buildings lost, and
 where the last jam is, all read off the same stream, so the readout cannot disagree with the flash
-about what just happened. A sound or a screen shake would be a third reader, not a third mechanism.
+about what just happened. **The HUD answers a refused click**: the stockpile is dry, or the tile is
+taken, or the ground is wrong, and a toast prints the reason - which the view could not work out for
+itself without re-running the placement rules and guessing which one bit. A sound or a screen shake
+would be a fourth reader, not a fourth mechanism.
 
 The buffer is a ring, so it always holds the most recent events and a reader needs no bookkeeping:
 it reads the window it cares about and the present is guaranteed to be in there. `Dropped` counts
@@ -234,8 +251,8 @@ fell behind" rather than guessing.
 
 | Suite | Where | What it covers |
 |---|---|---|
-| EditMode | `Assets/Tests/EditMode` | belts (27), the content table and its Editor carrier (20), production, drills and ore (11), waves and restart (9), the event stream (8), siege, health and destruction (7), economy and the Core bank (8), turrets/jams (8), the sorter (7), the maps and the campaign (8), the second chain (7), splitters (6), pipes (5), the tick, pause/restart and determinism (8), the inspect cursor (9), the machine registry and port masks (5), a custom table driving the game (5), visual overrides (7), end-to-end balance (3), build settings (2), the camera's pan bound (5) - 175 total |
-| PlayMode smoke | `Assets/Tests/PlayMode` | the shipped scene boots with its Palette and content asset wired, the driver builds every view, advances the world across frames, and draws real geometry for what is on the map; a Sprite override reaches the view; a kill leaves a burst that then fades; clearing a map loads the next one under the same views - 9 total |
+| EditMode | `Assets/Tests/EditMode` | belts (27), the content table and its Editor carrier (20), production, drills and ore (11), waves and restart (9), the event stream (12), siege, health and destruction (7), economy and the Core bank (8), turrets/jams (8), the sorter (7), the maps and the campaign (8), the second chain (7), splitters (6), pipes (5), the tick, pause/restart and determinism (8), the inspect cursor (9), the machine registry and port masks (5), a custom table driving the game (5), visual overrides (7), end-to-end balance (3), build settings (2), the camera's pan bound (6) - 180 total |
+| PlayMode smoke | `Assets/Tests/PlayMode` | the shipped scene boots with its Palette and content asset wired, the driver builds every view, advances the world across frames, and draws real geometry for what is on the map; a Sprite override reaches the view; a kill leaves a burst that then fades; clearing a map loads the next one under the same views; a refused click reaches the HUD's band - 10 total |
 
 ```bash
 # EditMode + PlayMode, headless, on either dev machine (Tools/locate-unity.sh finds the Editor, from

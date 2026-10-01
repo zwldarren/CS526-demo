@@ -144,11 +144,18 @@ namespace Facet.Tests
                 float s = HudLayout.Scale(screen.y);
                 ScreenInsets insets = HudLayout.Insets(s);
 
+                Rect stockpile = HudLayout.Stockpile(screen.x, s);
                 Rect bar = HudLayout.Bar(screen.x, screen.y, s);
                 Rect status = HudLayout.Status(s);
                 Rect controls = HudLayout.Controls(screen.x, s);
                 Rect info = HudLayout.Info(bar, s);
 
+                // The readout has no panel of its own, so its contract is the top strip, the screen's
+                // edges, and the right of the card it is measured from - the overlap test below holds the
+                // rest.
+                Assert.GreaterOrEqual(stockpile.x, status.xMax - 1e-2f, "the stockpile readout is not beside the status card" + at);
+                Assert.LessOrEqual(stockpile.xMax, screen.x + 1e-2f, "the stockpile readout runs off the screen" + at);
+                Assert.LessOrEqual(stockpile.yMax, insets.Top + 1e-2f, "the stockpile readout reaches below the top strip" + at);
                 Assert.LessOrEqual(status.xMax, insets.Left + 1e-2f, "the status card is wider than the left strip" + at);
                 Assert.LessOrEqual(status.yMax, insets.Top + 1e-2f, "the status card is taller than the top strip" + at);
                 Assert.GreaterOrEqual(controls.x, screen.x - insets.Right - 1e-2f, "the controls card reaches into the open screen" + at);
@@ -159,6 +166,45 @@ namespace Facet.Tests
                 Assert.LessOrEqual(bar.yMax, screen.y + 1e-2f, "the build bar runs off the screen" + at);
             }
         }
+
+        /// <summary>
+        /// The other half of "the panels own their strips": nothing the HUD draws permanently may sit on
+        /// anything else it draws permanently. The stockpile readout is the newest way to break this - it
+        /// is anchored to the status card and gives up width rather than ever reaching the controls card -
+        /// but the check is written over every pair, because two pieces drifting into each other is the
+        /// same bug wherever it comes from. Toasts are left out on purpose: they overlay the map, which is
+        /// the one thing they are for.
+        /// </summary>
+        [Test]
+        public void NoHudPieceOverlapsAnother()
+        {
+            foreach (Vector2 screen in Screens)
+            {
+                string at = " at " + screen.x + "x" + screen.y;
+                float s = HudLayout.Scale(screen.y);
+                Rect bar = HudLayout.Bar(screen.x, screen.y, s);
+
+                (string Name, Rect Rect)[] pieces =
+                {
+                    ("stockpile", HudLayout.Stockpile(screen.x, s)),
+                    ("status", HudLayout.Status(s)),
+                    ("controls", HudLayout.Controls(screen.x, s)),
+                    ("info", HudLayout.Info(bar, s)),
+                    ("bar", bar),
+                };
+
+                for (int i = 0; i < pieces.Length; i++)
+                for (int j = i + 1; j < pieces.Length; j++)
+                {
+                    Assert.IsFalse(Overlaps(pieces[i].Rect, pieces[j].Rect),
+                        "the " + pieces[i].Name + " and the " + pieces[j].Name + " pieces overlap" + at);
+                }
+            }
+        }
+
+        private static bool Overlaps(Rect a, Rect b)
+            => a.xMin < b.xMax - 1e-2f && b.xMin < a.xMax - 1e-2f &&
+               a.yMin < b.yMax - 1e-2f && b.yMin < a.yMax - 1e-2f;
 
         /// <summary>Where a world point lands on the screen, in pixels, for an orthographic camera
         /// centred on <paramref name="centre"/> on a screen <paramref name="screen"/> pixels across.</summary>

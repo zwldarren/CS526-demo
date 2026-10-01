@@ -228,6 +228,41 @@ namespace Facet.PlayTests
             Assert.Greater(driver.World.TickCount, ticks, "and the clock runs on the new map too");
         }
 
+        /// <summary>
+        /// The answer to a click that built nothing, through the whole chain: the tick refuses the
+        /// placement, the stream carries the reason, and the HUD's resource band draws it. IMGUI has no
+        /// headless test - OnGUI only runs in a real player loop - so "drive the refusal, then draw
+        /// frames with it live" is the closest thing to a test of the band, and a throw while drawing it
+        /// fails here the way a compile error would.
+        /// </summary>
+        [UnityTest]
+        public IEnumerator ARefusedPlacement_IsReported_AndTheHudDrawsIt()
+        {
+            yield return null;
+
+            var driver = _driverObject.GetComponent<SimulationDriver>();
+            SimWorld world = driver.World;
+
+            // The bootstrap budget spent: the next belt is a purchase this run cannot make - the click a
+            // player makes before asking why nothing happened.
+            world.Economy.Reset(0);
+
+            var cell = new Int2(20, 10);
+            world.Tick(new InputCommand(true, false, cell, selected: BuildKind.Belt));
+            world.Tick(new InputCommand(false, false, cell, primaryReleased: true, selected: BuildKind.Belt));
+
+            Assert.IsFalse(world.Belts.Has(cell), "the belt is refused");
+            Assert.IsTrue(world.Events.TryLast(SimEventKind.PlacementRejected, out SimEvent refusal),
+                "and the click says why");
+            Assert.AreEqual(RejectionReason.NoFunds, refusal.Reason);
+            Assert.AreEqual(cell, refusal.Cell);
+
+            // Frames with the refusal inside its window: the band draws the message and flashes the
+            // number, and this test fails if either throws.
+            yield return null;
+            yield return null;
+        }
+
         /// <summary>The grid view's vertex count for a map: one ground quad plus a line quad per grid
         /// line, so it is a function of the map's size and of nothing else.</summary>
         private static int GridVertices(MapDefinition map) => 4 * (map.Width + map.Height + 3);

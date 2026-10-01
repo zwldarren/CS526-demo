@@ -3,6 +3,27 @@ using System;
 namespace Facet.Core
 {
     /// <summary>
+    /// Why a placement was refused: the half of "no" a player needs, because a click that builds
+    /// nothing must say what stopped it instead of vanishing into the map.
+    /// </summary>
+    public enum RejectionReason : byte
+    {
+        /// <summary>The stockpile cannot cover the cost - the one refusal the player can fix by
+        /// waiting for a delivery.</summary>
+        NoFunds = 0,
+
+        /// <summary>Something already stands on the tile: a belt, a machine, or the Core.</summary>
+        Occupied = 1,
+
+        /// <summary>The ground is wrong for this building - a drill needs a shape patch under it, and
+        /// every other machine needs bare ground.</summary>
+        BadGround = 2,
+
+        /// <summary>Outside the map.</summary>
+        OffMap = 3,
+    }
+
+    /// <summary>
     /// Everything the simulation reports having done. A closed set for the same reason
     /// <see cref="BehaviorKind"/> is: it is the interface between the simulation and everything that
     /// wants to *react* to it - a sound, a flash, a log line, a scoreboard - and an interface with a
@@ -59,6 +80,11 @@ namespace Facet.Core
 
         /// <summary>A building was destroyed by enemies. <c>Cell</c> is where it stood.</summary>
         BuildingDestroyed = 14,
+
+        /// <summary>A placement the player asked for was refused. <c>Cell</c> is where it was aimed,
+        /// <c>Building</c> what was being built, <c>Reason</c> why it did not happen, and
+        /// <c>Amount</c> what it would have cost.</summary>
+        PlacementRejected = 15,
     }
 
     /// <summary>
@@ -99,8 +125,14 @@ namespace Facet.Core
         /// <summary>The event's number: a cost, a refund, a damage, a wave number.</summary>
         public readonly float Amount;
 
+        /// <summary>Why a <see cref="SimEventKind.PlacementRejected"/> event happened. The default -
+        /// <see cref="RejectionReason.NoFunds"/> - is meaningless for every other kind, exactly as
+        /// <see cref="Building"/> is.</summary>
+        public readonly RejectionReason Reason;
+
         internal SimEvent(SimEventKind kind, int tick, Int2 cell, Vec2 position, int enemyId,
-            EnemyKind enemy, ShapeType shape, float amount, BuildKind building = default)
+            EnemyKind enemy, ShapeType shape, float amount, BuildKind building = default,
+            RejectionReason reason = default)
         {
             Kind = kind;
             Tick = tick;
@@ -111,6 +143,7 @@ namespace Facet.Core
             Shape = shape;
             Amount = amount;
             Building = building;
+            Reason = reason;
         }
 
         public override string ToString()
@@ -247,11 +280,17 @@ namespace Facet.Core
         public void BuildingDestroyed(Int2 cell, BuildKind building)
             => Push(SimEventKind.BuildingDestroyed, cell: cell, building: building);
 
+        /// <summary>A placement was refused, and why: the answer to a click that built nothing.
+        /// <paramref name="cost"/> is what the building would have cost.</summary>
+        public void PlacementRejected(Int2 cell, BuildKind building, RejectionReason reason, int cost)
+            => Push(SimEventKind.PlacementRejected, cell: cell, amount: cost, building: building, reason: reason);
+
         private void Push(SimEventKind kind, Int2 cell = default, float amount = 0f,
             Vec2 position = default, int enemyId = 0, EnemyKind enemy = default,
-            ShapeType shape = ShapeType.None, BuildKind building = default)
+            ShapeType shape = ShapeType.None, BuildKind building = default,
+            RejectionReason reason = default)
         {
-            var e = new SimEvent(kind, Tick, cell, position, enemyId, enemy, shape, amount, building);
+            var e = new SimEvent(kind, Tick, cell, position, enemyId, enemy, shape, amount, building, reason);
 
             if (_count < _events.Length)
             {

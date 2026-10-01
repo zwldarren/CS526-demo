@@ -341,14 +341,26 @@ namespace Facet.Tests
         }
 
         [Test]
-        public void ABareClickLaysNothing_BecauseABeltNeedsADirection()
+        public void ABareClickLaysOneBelt_BecauseTheGhostNamesItsDirection()
         {
+            // A click used to lay nothing at all, on the theory that a belt needs a direction. It has
+            // one - the ghost's, which Q/E turn and the info card names - so a click that built nothing
+            // was simply a click that did nothing: the button the player pressed promised a belt and
+            // delivered silence, which is what "the game won't let me build" looks like from outside.
             SimWorld world = Sim.NewWorld(16, 10);
             var click = new InputCommand(true, false, new Int2(2, 2), selected: BuildKind.Belt);
             Sim.Tick(world, click, 10);
             Sim.Tick(world, 1);
 
-            Assert.IsFalse(world.Belts.Has(new Int2(2, 2)));
+            Assert.IsTrue(world.Belts.Has(new Int2(2, 2)), "the click lays the cell under the cursor");
+            Assert.AreEqual(Dir.East, Sim.DirAt(world, new Int2(2, 2)), "facing the ghost");
+
+            // The ghost turns, so the click after it does too.
+            world.Tick(new InputCommand(cursorCell: new Int2(5, 5), selected: BuildKind.Belt, rotateSteps: 1));
+            Sim.Tick(world, new InputCommand(true, false, new Int2(5, 5), selected: BuildKind.Belt), 2);
+            world.Tick(InputCommand.None);
+
+            Assert.AreEqual(Dir.South, Sim.DirAt(world, new Int2(5, 5)), "one clockwise turn from east");
             Assert.AreEqual(0, Sim.ItemCount(world));
         }
 
