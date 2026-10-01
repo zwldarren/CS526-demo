@@ -127,6 +127,10 @@ namespace Facet.Core
         private readonly BeltField _belts;
         private readonly ContentDatabase _content;
 
+        /// <summary>The map, for the one tile-rule that is the map's: a wave enters at its doorways, so
+        /// no machine may stand on one.</summary>
+        private readonly MapDefinition _map;
+
         /// <summary>The stream enemy damage to buildings is reported on. Derived telemetry: nothing
         /// reads it back, so it cannot affect a run's outcome.</summary>
         private readonly SimEventBuffer _events;
@@ -141,13 +145,14 @@ namespace Facet.Core
         public int Revision { get; private set; }
 
         public MachineField(TileGrid grid, ShapePatchField patches, BeltField belts, ContentDatabase content,
-            SimEventBuffer events)
+            SimEventBuffer events, MapDefinition map)
         {
             _grid = grid ?? throw new ArgumentNullException(nameof(grid));
             _patches = patches ?? throw new ArgumentNullException(nameof(patches));
             _belts = belts ?? throw new ArgumentNullException(nameof(belts));
             _content = content ?? throw new ArgumentNullException(nameof(content));
             _events = events ?? throw new ArgumentNullException(nameof(events));
+            _map = map ?? throw new ArgumentNullException(nameof(map));
             _state = new MachineState[grid.Width * grid.Height];
         }
 
@@ -191,12 +196,10 @@ namespace Facet.Core
 
         /// <summary>
         /// May a machine of this kind stand here? A drill only on a shape patch (that is what "mined"
-        /// means), every other machine only on bare ground. Patches stay reserved for drills, so a
-        /// machine cannot quietly sit on the only source of a shape.
-        ///
-        /// Bare ground means bare: a tile carrying a belt is neither empty nor a patch, so a machine
-        /// needs the belt removed first. That is the whole cost of a belt crossing a vein - the drill
-        /// that could have stood on that cell - and this is where the cost is exacted.
+        /// means) and every other machine only on bare ground - a tile carrying a belt is neither empty
+        /// nor a patch, so the belt comes out first, which is the whole cost of a belt crossing a vein -
+        /// and no machine at all on a wave's doorway, the one place it would seal a wave inside itself.
+        /// A belt stays legal there because only something solid would plug a door.
         /// </summary>
         public bool CanPlace(BuildKind build, Int2 cell)
         {
@@ -204,6 +207,7 @@ namespace Facet.Core
 
             TileKind kind = _content.Machine(build).Tile;
             if (kind == TileKind.Belt) return false;                       // belts are BeltField's business
+            if (_map.SpawnIndexOf(cell) >= 0) return false;                // a doorway stays open
 
             TileKind here = _grid.Get(cell);
             // A drill needs a patch to mine, and a patch only ever wants a drill.

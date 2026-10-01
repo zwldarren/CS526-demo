@@ -41,8 +41,9 @@ with them. The status card's edge stripe turns from the accent colour to the war
 something in it needs the player: a jam, a starved turret, a leaking Core.
 
 A refused placement turns up as a **toast**. The tick reports the reason on the event stream
-(`PlacementRejected`: no funds, the tile is occupied, the ground is wrong, off the map), and a dark
-panel sized to that sentence floats under the top cards for three seconds of simulation time, fading
+(`PlacementRejected`: no funds, the tile is occupied, the ground is wrong, the tile is a wave's
+doorway, off the map), and a dark panel sized to that sentence floats under the top cards for three
+seconds of simulation time, fading
 out as it goes, with the stockpile flashing warning-coloured beside it. "Not enough circles" is only
 useful next to how many circles there are, and a click that quietly did nothing is the one thing that
 reads as a broken game.
@@ -131,6 +132,15 @@ another.
   field a decision rather than a detour: it decides which way a wave walks, and it is what a sealed-in
   enemy eats. A machine chews red as it takes hits, so how close a wall is to falling is visible; a
   belt pointed at a wall simply stalls at full progress, like any building that never consumes.
+  **It may not stand on a wave's doorway**: the map's door has to stay walkable, and a wall there is
+  refused as a doorway — plug it for two circles and the wave would spawn inside the wall. Only a
+  *machine* would seal a door: a belt is a flat conveyor and may cross one, exactly as it may cross a
+  vein.
+* **Walkers keep a body's width between them.** The flow field sends a whole wave down one line, so
+  each tick any pair closer than a body's width (0.84 tiles — the drawn diameter) pushes apart by half
+  the overlap each, never moving a walker faster than it moves itself and never into a solid cell. A
+  wave may still *arrive* as a knot — a door is a single tile — but it never stays one: the rule is
+  what pulls the fresh arrival out of the queue over the next few ticks.
 * **Every drill needs a shape patch in the ground**, and every shape patch only accepts a drill — so a
   patch is what a chain is built around. **A belt, though, can be laid across ore**: transport crosses
   a vein, only machines are kept off it. That is what makes a wide vein workable at all, because a
@@ -251,7 +261,7 @@ fell behind" rather than guessing.
 
 | Suite | Where | What it covers |
 |---|---|---|
-| EditMode | `Assets/Tests/EditMode` | belts (27), the content table and its Editor carrier (20), production, drills and ore (11), waves and restart (9), the event stream (12), siege, health and destruction (7), economy and the Core bank (8), turrets/jams (8), the sorter (7), the maps and the campaign (8), the second chain (7), splitters (6), pipes (5), the tick, pause/restart and determinism (8), the inspect cursor (9), the machine registry and port masks (5), a custom table driving the game (5), visual overrides (7), end-to-end balance (3), build settings (2), the camera's pan bound (6) - 180 total |
+| EditMode | `Assets/Tests/EditMode` | belts (27), the content table and its Editor carrier (20), production, drills and ore (11), waves and restart (9), the event stream (12), siege, health and destruction (7), economy and the Core bank (8), turrets/jams (8), the sorter (7), the maps and the campaign (8), the second chain (7), splitters (6), pipes (5), the tick, pause/restart and determinism (8), the inspect cursor (9), the machine registry and port masks (5), a custom table driving the game (5), visual overrides (7), end-to-end balance (3), build settings (2), the camera's pan bound (6), enemies and doorways (4) - 184 total |
 | PlayMode smoke | `Assets/Tests/PlayMode` | the shipped scene boots with its Palette and content asset wired, the driver builds every view, advances the world across frames, and draws real geometry for what is on the map; a Sprite override reaches the view; a kill leaves a burst that then fades; clearing a map loads the next one under the same views; a refused click reaches the HUD's band - 10 total |
 
 ```bash
@@ -276,7 +286,8 @@ Assets/Scripts/Core        engine-free simulation (no UnityEngine reference)
   Maps                     the map table: size, starting stockpile, patches, spawn points, waves
   ContentDatabase          the one table of what exists: shapes, recipes, machines, turrets, enemies, costs
   MachineField             the built things: where they are, what they hold, their health, and the
-                           occupancy registry; enemy damage and destruction (no refund) land here
+                           occupancy registry; enemy damage and destruction (no refund) land here, and
+                           the map's doorways are the one tile it refuses to build on
   MachineDelivery          the belt-to-machine rule: which cells deliver in, which sides are outlets
   MachineSystem            one pass over the machines, dispatching each to its definition's behaviour
   DrillBehavior …          the behaviours: drill, converter (recipe-driven), pipe, splitter, sorter, turret
@@ -287,12 +298,14 @@ Assets/Scripts/Core        engine-free simulation (no UnityEngine reference)
   CoreSinkSystem           deliveries into the Core bank as spendable circles
   PathField                the walkers' way to the Core: a BFS direction field over the cells no
                            machine blocks, rebuilt only when a building comes or goes
-  EnemyField               walks the flow field, stops to hit machines in reach, or hits the Core
+  EnemyField               walks the flow field, stops to hit machines in reach, hits the Core, and
+                           keeps walkers a body apart
   ProjectileField          shots in flight, so the shape that killed something is visible
   WaveDirector             the map's waves: the first held for the player, the countdowns after it, and what counts as a cleared wave
   BuildController          selection, the read pin, drag-to-lay, machine aiming, jam-clearing delete, and the bill
   EconomyState             the stockpile: spend, refund, bank (costs come from the content table)
-  Balance                  the global rules (core reach, projectile hit radius/lifetime) and a facade over the shipped table
+  Balance                  the global rules (core reach, projectile radius/lifetime, enemy spacing) and
+                           a facade over the shipped table
   SimWorld                 the tick order and the run's state
 Assets/Scripts/Unity       view layer (one renderer per concern, one mesh each, Palette for colour)
   Palette                  the whole look, including per-content Sprite/procedural overrides (VisualCatalog)

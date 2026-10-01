@@ -32,8 +32,8 @@ namespace Facet.Core
     }
 
     /// <summary>
-    /// Every enemy on the map, plus the three things that happen to them: walking at the Core, being
-    /// shot, and stopping to tear down whatever machine stands in the way.
+    /// Every enemy on the map, plus the four things that happen to them: walking at the Core, being
+    /// shot, stopping to tear down whatever machine stands in the way, and giving each other room.
     ///
     /// <b>Machines block and are attackable; belts are walked over.</b> An enemy walks the
     /// <see cref="PathField"/>'s flow toward the Core - around machines, not through them - but stops
@@ -47,6 +47,10 @@ namespace Facet.Core
     ///
     /// The Core's rules are untouched: reaching the attack ring stops an enemy and drains
     /// <see cref="CoreState.Hp"/> at its own damage and interval.
+    ///
+    /// <b>Walkers keep their distance from each other.</b> One separation pass per tick pushes any pair
+    /// closer than <see cref="Balance.EnemySpacing"/> apart (see <see cref="Separate"/>), so a wave
+    /// walks in as bodies rather than one sprite.
     /// </summary>
     public sealed class EnemyField
     {
@@ -60,6 +64,10 @@ namespace Facet.Core
 
         private EnemyState[] _enemies;
         private int _count;
+
+        /// <summary>Separation scratch, one entry per enemy: this tick's pushes, accumulated pair by
+        /// pair and applied once (<see cref="Separate"/>). Sized with <see cref="_enemies"/>.</summary>
+        private Vec2[] _push;
 
         private readonly ContentDatabase _content;
 
@@ -90,6 +98,7 @@ namespace Facet.Core
             _machines = machines ?? throw new ArgumentNullException(nameof(machines));
             _paths = paths ?? throw new ArgumentNullException(nameof(paths));
             _enemies = new EnemyState[Math.Max(8, capacity)];
+            _push = new Vec2[_enemies.Length];
         }
 
         public void Clear()
@@ -103,7 +112,11 @@ namespace Facet.Core
         /// <summary>Create one enemy. Returns its id, which is what shots home in on.</summary>
         public int Spawn(EnemyKind kind, Vec2 position)
         {
-            if (_count == _enemies.Length) Array.Resize(ref _enemies, _enemies.Length * 2);
+            if (_count == _enemies.Length)
+            {
+                Array.Resize(ref _enemies, _enemies.Length * 2);
+                Array.Resize(ref _push, _push.Length * 2);
+            }
 
             EnemyDef spec = _content.Enemy(kind);
             int id = _nextId++;
@@ -122,13 +135,15 @@ namespace Facet.Core
 
             _slotById[id] = _count;
             _count++;
+
             return id;
         }
 
         /// <summary>
         /// Advance every enemy, in this order each: hold at the Core's ring and hit it; stop and hit an
         /// attackable machine in reach; walk one step along the flow field toward the Core; or, when the
-        /// flow has no direction, walk straight at the Core and hit whatever blocks the way.
+        /// flow has no direction, walk straight at the Core and hit whatever blocks the way. One
+        /// separation pass afterwards gives the walkers their own room.
         /// </summary>
         public void Step(float dt, ref CoreState core)
         {
@@ -205,6 +220,66 @@ namespace Facet.Core
                 // used to - but never into a solid cell. A standing enemy is always within its own reach
                 // of the blocker (1.6 >= sqrt 2), so step 2 chews it down next tick.
                 e.Position = Advance(e.Position, centre, step);
+            }
+
+            Separate(dt);
+        }
+
+        /// <summary>
+        /// The walkers' own collision: any two closer than <see cref="Balance.EnemySpacing"/> push each
+        /// other apart by half the overlap each. Symmetric by construction - every pair is walked once
+        /// and both halves are accumulated before anything moves, so the result does not depend on pair
+        /// order - and the push goes through <see cref="Advance"/> capped at the walker's own speed, so
+        /// separation can neither shove a walker into a solid cell nor teleport a deep pile clear in one
+        /// tick. Exactly-overlapping walkers part along X: an axis fixed by the code, not by whatever
+        /// the map happened to be doing, so a replay still matches.
+        ///
+        /// Spawning is deliberately not special-cased: a door is one tile, so a fast group can be set
+        /// down stacked, and this pass - not the door - is what pulls the arrival out of the queue.
+        /// </summary>
+        private void Separate(float dt)
+        {
+            if (_count < 2) return;
+
+            Array.Clear(_push, 0, _count);
+
+            float space = Balance.EnemySpacing;
+            float spaceSq = space * space;
+
+            for (int i = 0; i < _count; i++)
+            {
+                Vec2 from = _enemies[i].Position;
+                for (int j = i + 1; j < _count; j++)
+                {
+                    Vec2 delta = _enemies[j].Position - from;
+                    float sq = delta.X * delta.X + delta.Y * delta.Y;
+                    if (sq >= spaceSq) continue;
+
+                    float distance = MathF.Sqrt(sq);
+                    Vec2 axis = distance > 0f ? delta * (1f / distance) : new Vec2(1f, 0f);
+                    float half = (space - distance) * 0.5f;
+
+                    _push[i] = _push[i] - axis * half;
+                    _push[j] = _push[j] + axis * half;
+                }
+            }
+
+            for (int i = 0; i < _count; i++)
+            {
+                Vec2 push = _push[i];
+                float length = push.Magnitude;
+                if (length <= 0f) continue;
+
+                ref EnemyState e = ref _enemies[i];
+
+                // A push never moves a walker faster than that walker moves itself: the pass resolves
+                // an overlap at walking pace - a few ticks for a pair that spawned on the same spot,
+                // invisible for the hundredth of a tile the ordinary case closes by.
+                float cap = _content.Enemy(e.Kind).Speed * dt;
+                if (cap <= 0f) continue;
+                if (length > cap) push = push * (cap / length);
+
+                e.Position = Advance(e.Position, e.Position + push, push.Magnitude);
             }
         }
 

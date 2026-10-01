@@ -160,16 +160,20 @@ namespace Facet.Core
         }
 
         /// <summary>
-        /// Why a placement was refused, read from the same rules that refused it: <see cref="CanPlace"/>
-        /// first and the stockpile second, the order <see cref="TryPlace"/> checks them in, so the reason
-        /// can never name a cause the placement did not actually fail on.
+        /// Why a placement was refused, read from the same rules that refused it and in the same order -
+        /// <see cref="CanPlace"/> first, the stockpile second - so the toast names the rule that
+        /// actually bit: a door already carrying a belt is still refused as a doorway. The doorway is a
+        /// machine's rule, so belts are exempt here: a belt is walkable and may cross a door, and a belt
+        /// refused on one is refused for the tile it is on.
         /// </summary>
         private RejectionReason ReasonFor(BuildKind kind, Int2 cell)
         {
             if (CanPlace(kind, cell)) return RejectionReason.NoFunds;
             if (!_grid.InBounds(cell)) return RejectionReason.OffMap;
+            if (kind != BuildKind.Belt && _map.SpawnIndexOf(cell) >= 0) return RejectionReason.Doorway;
+            if (_grid.IsOccupied(cell)) return RejectionReason.Occupied;
 
-            return _grid.IsOccupied(cell) ? RejectionReason.Occupied : RejectionReason.BadGround;
+            return RejectionReason.BadGround;
         }
 
         /// <summary>

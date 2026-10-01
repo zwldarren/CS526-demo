@@ -15,7 +15,7 @@ namespace Facet.Core
     ///   4. core sink          - deliveries into the Core bank as circles
     ///   5. projectiles        - fly and burst (they read the shots step 3 fired)
     ///   6. path field         - rebuild the walkers' way to the Core if buildings changed
-    ///   7. enemies            - walk it, and hit the Core or a machine in reach
+    ///   7. enemies            - walk it, hit the Core or a machine in reach, and give each other room
     ///   8. waves              - spawn, and decide whether the wave or the run is over
     ///
     /// <see cref="Events"/> is filled alongside all eight. It is derived - the simulation never reads
@@ -106,7 +106,7 @@ namespace Facet.Core
             TileGrid = new TileGrid(map.Width, map.Height);
             Patches = new ShapePatchField(TileGrid);
             Belts = new BeltField(TileGrid, Patches, Events);
-            Machines = new MachineField(TileGrid, Patches, Belts, Content, Events);
+            Machines = new MachineField(TileGrid, Patches, Belts, Content, Events, Map);
             _paths = new PathField(TileGrid, Machines);
             Enemies = new EnemyField(Content, Events, TileGrid, Machines, _paths);
             Projectiles = new ProjectileField();

@@ -255,6 +255,9 @@ namespace Facet.Game
                     return def.Tile == TileKind.Drill
                         ? "NO ORE — a drill mines only the patch it stands on"
                         : "ON ORE — only a drill may stand on a patch";
+                case RejectionReason.Doorway:
+                    return "A DOORWAY — waves walk in at " + refusal.Cell +
+                           ", and nothing solid may stand there";
                 default:
                     return "OFF THE MAP — nothing can be built on " + refusal.Cell;
             }

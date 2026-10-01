@@ -2,12 +2,13 @@ namespace Facet.Core
 {
     /// <summary>
     /// The global rules that are not tied to one piece of content: how close an enemy must be to hit
-    /// the Core, how forgiving a projectile's hit test is, how long a stray shot lives.
+    /// the Core, how forgiving a projectile's hit test is, how long a stray shot lives, and how much
+    /// room a wave gives itself.
     ///
     /// Everything else that used to live in this file - build costs, turret and enemy stats, the
     /// machine table, the decomposer recipe - now lives in <see cref="ContentDatabase"/>, the single
     /// source of truth the simulation, the view and the Editor asset all read. What is left here is
-    /// the three physics constants above, plus a facade over the shipped table
+    /// the four global rules above, plus a facade over the shipped table
     /// (<see cref="ContentDatabase.Default"/>) that the EditMode tests read their numbers from; new
     /// code should take a <see cref="ContentDatabase"/> and read it directly, which is what lets a
     /// test or a replay run against a different, still-reproducible table.
@@ -25,6 +26,15 @@ namespace Facet.Core
         /// <summary>A shot that never lands is destroyed after this long, so a killed target cannot
         /// leave a projectile flying forever.</summary>
         public static readonly float ProjectileMaxLifetime = 6f;
+
+        /// <summary>
+        /// How close two walkers may stand before they push each other apart, in tiles: a body's width,
+        /// and the one source of it - the view draws bodies at half this, in
+        /// <c>Palette.EnemyLook.BodyRadius</c>. A closer pair is pushed apart by
+        /// <see cref="EnemyField"/>'s separation pass; without the rule the flow field would walk a
+        /// wave as one sprite.
+        /// </summary>
+        public static readonly float EnemySpacing = 0.84f;
 
         private static ContentDatabase Content => ContentDatabase.Default;
 

@@ -21,6 +21,10 @@ namespace Facet.Core
 
         /// <summary>Outside the map.</summary>
         OffMap = 3,
+
+        /// <summary>The tile is a wave's doorway: the map's tile, kept walkable, so a machine there
+        /// would seal the wave in (<see cref="MachineField.CanPlace"/>).</summary>
+        Doorway = 4,
     }
 
     /// <summary>

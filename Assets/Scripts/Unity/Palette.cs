@@ -9,7 +9,10 @@ namespace Facet.Game
     /// thickness, and the per-view geometry (radii, insets, chevrons, alphas) and layer depths.
     /// The design doc's art rule is "colour says which side it is on, polygon count says how
     /// damaged it is" - so this asset is the single source of truth for the look of the game,
-    /// and a re-skin is a duplicate of this asset rather than a code change.
+    /// and a re-skin is a duplicate of this asset rather than a code change. One number is deliberately
+    /// not here: an enemy's body radius is derived from the simulation's spacing rule
+    /// (<see cref="Balance.EnemySpacing"/>), so the drawn body and the room a walker keeps cannot drift
+    /// apart.
     ///
     /// Palette is light: a near-white map on a slightly darker void, with dark flat shapes and one
     /// dark outline, so a hundred small coloured parts stay readable against the ground. Thicknesses
@@ -335,8 +338,11 @@ namespace Facet.Game
         [Serializable]
         public sealed class EnemyLook
         {
-            [Tooltip("Body radius in tiles. A 0.84-wide body fills a walkable lane without hiding the tile grid.")]
-            public float BodyRadius = 0.42f;
+            /// <summary>Body radius in tiles: half of <see cref="Balance.EnemySpacing"/>, the simulation's
+            /// own rule for how close two walkers may stand - so a re-skinned palette cannot make two
+            /// enemies overlap. A 0.84-wide body fills a walkable lane without hiding the tile grid.</summary>
+            public float BodyRadius => Balance.EnemySpacing * 0.5f;
+
             [Tooltip("Weakness-icon radius. Roughly half the body, so it reads as a label, not a second enemy.")]
             public float WeaknessRadius = 0.20f;
 
