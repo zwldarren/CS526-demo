@@ -529,8 +529,16 @@ namespace Facet.Core
                 new EnemyDef(new ContentId("spike"), EnemyKind.Spike, "Spike",
                     hp: 6f, speed: 1.5f, damage: 6f, attackInterval: 1f,
                     weakness: ShapeType.HalfCircle, aggroRange: 1.6f, detectionRange: 2.5f),
-            };
 
+                // Slower but more dangerous, weak to ◡. The same six health as a Spike, so the same
+                // one mortar shell, but it walks at two-thirds the speed and hits the Core for ten
+                // instead of six - a wave of these is a question about the gun's cycle rather than the
+                // belt behind it. Its reach is the shipped default, the same two machine radii the
+                // Spike charges and hits from.
+                new EnemyDef(new ContentId("bulwark"), EnemyKind.Bulwark, "Bulwark",
+                    hp: 6f, speed: 1f, damage: 10f, attackInterval: 1.25f,
+                    weakness: ShapeType.HalfSquare),
+            };
             return new ContentDatabase(machines, turrets, enemies, shapes, recipes);
         }
 

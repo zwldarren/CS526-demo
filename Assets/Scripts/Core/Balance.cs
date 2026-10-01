@@ -2,13 +2,13 @@ namespace Facet.Core
 {
     /// <summary>
     /// The global rules that are not tied to one piece of content: how close an enemy must be to hit
-    /// the Core, how forgiving a projectile's hit test is, how long a stray shot lives, and how much
-    /// room a wave gives itself.
+    /// the Core, how forgiving a projectile's hit test is, how long a stray shot lives, how much room
+    /// a wave gives itself, and what hitting an enemy's weakness is worth.
     ///
     /// Everything else that used to live in this file - build costs, turret and enemy stats, the
     /// machine table, the decomposer recipe - now lives in <see cref="ContentDatabase"/>, the single
     /// source of truth the simulation, the view and the Editor asset all read. What is left here is
-    /// the four global rules above, plus a facade over the shipped table
+    /// the five global rules above, plus a facade over the shipped table
     /// (<see cref="ContentDatabase.Default"/>) that the EditMode tests read their numbers from; new
     /// code should take a <see cref="ContentDatabase"/> and read it directly, which is what lets a
     /// test or a replay run against a different, still-reproducible table.
@@ -35,6 +35,12 @@ namespace Facet.Core
         /// wave as one sprite.
         /// </summary>
         public static readonly float EnemySpacing = 0.84f;
+
+        /// <summary>Shots matching an enemy's weakness deal their full listed damage.</summary>
+        public const float WeaknessDamageMultiplier = 1f;
+
+        /// <summary>Shots that do not match the enemy's weakness deal reduced damage.</summary>
+        public const float ResistantDamageMultiplier = 0.25f;
 
         private static ContentDatabase Content => ContentDatabase.Default;
 

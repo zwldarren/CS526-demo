@@ -87,7 +87,7 @@ namespace Facet.Core
 
                 if (distance <= MathF.Max(step, Balance.ProjectileHitRadius))
                 {
-                    enemies.ApplyDamage(shot.TargetId, shot.Damage);
+                    enemies.ApplyDamage(shot.TargetId, shot.Damage, shot.Ammo);
                     RemoveAt(i);
                     continue;
                 }

@@ -110,6 +110,33 @@ namespace Facet.Tests
                 " dmg is exactly two shots - the ammo bill is readable before the wave starts");
         }
 
+        /// <summary>
+        /// The weakness rule, on the field directly rather than through a turret: a shot that matches
+        /// the target's weakness lands its full damage, and one that does not lands a quarter of it.
+        /// Read off the HP rather than the event stream so a change to either multiplier shows up as
+        /// the number it is.
+        /// </summary>
+        [Test]
+        public void EnemyWeakness_ControlsHowMuchDamageAShapeDeals()
+        {
+            SimWorld matching = Sim.NewEnduringWorld(W, H);
+            int matchingId = matching.Enemies.Spawn(EnemyKind.Spike, new Vec2(13.5f, 10.5f));
+            float startingHp = matching.Enemies.EnemyAt(0).Hp;
+
+            matching.Enemies.ApplyDamage(matchingId, 3f, ShapeType.HalfCircle);
+
+            Assert.AreEqual(startingHp - 3f, matching.Enemies.EnemyAt(0).Hp,
+                Sim.Tol, "the Spike's half-circle weakness takes the full 3 damage");
+
+            SimWorld resistant = Sim.NewEnduringWorld(W, H);
+            int resistantId = resistant.Enemies.Spawn(EnemyKind.Spike, new Vec2(13.5f, 10.5f));
+
+            resistant.Enemies.ApplyDamage(resistantId, 3f, ShapeType.HalfSquare);
+
+            Assert.AreEqual(startingHp - 0.75f, resistant.Enemies.EnemyAt(0).Hp,
+                Sim.Tol, "half-square ammo is resisted, so the same 3 damage lands a quarter of itself");
+        }
+
         [Test]
         public void WrongShapeDelivery_JamsTheSegment_AndClearingItRestoresTheLine()
         {

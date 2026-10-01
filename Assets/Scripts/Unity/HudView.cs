@@ -138,16 +138,25 @@ namespace Facet.Game
             Rect bar = HudLayout.Bar(Screen.width, Screen.height, s);
             Rect info = HudLayout.Info(bar, s);
 
+            // The tutorial explains the first map's chain - mine, carry, spend - so it is up only
+            // while the run is on the map that asks the player to do it for the first time.
+            bool showTutorial = _campaign != null && _campaign.MapIndex == 0;
+            Rect tutorial = HudLayout.Tutorial(s);
+
             // The HUD owns its panels: the pointer being over one is reported to the input source, so a
             // click on a button cannot also build under it. OnGUI runs after the driver's Update, so
             // this describes the panel under the pointer as of the previous frame - a frame of lag on a
             // pointer that has to travel to the button anyway. The stockpile readout and the toast are
             // not panels: they are read, never clicked, so a click goes through them to the map.
             PointerOverHud = PointerOver(status) || PointerOver(controls) ||
-                             PointerOver(bar) || PointerOver(info);
+                             PointerOver(bar) || PointerOver(info) ||
+                             (showTutorial && PointerOver(tutorial));
 
             DrawStockpile(HudLayout.Stockpile(Screen.width, s), s);
             DrawStatus(status, s);
+
+            if (showTutorial) DrawTutorial(tutorial, s);
+
             DrawControls(controls, s);
 
             // The bar runs first so it can record which tile is under the pointer; the info card reads
@@ -261,6 +270,33 @@ namespace Facet.Game
                 default:
                     return "OFF THE MAP — nothing can be built on " + refusal.Cell;
             }
+        }
+
+        // ------------------------------------------------------------------ tutorial
+
+        /// <summary>
+        /// The one piece of the HUD that explains the game rather than reporting it: the first map's
+        /// chain in the order the player has to do it - mine, carry, spend - and the jam rule, which is
+        /// the only part of a belt that watching one run does not make obvious.
+        ///
+        /// A card rather than a dismissable popup: it sits in the corner the player is already reading,
+        /// so it costs no click and leaves no state behind when the run moves on to the next map.
+        /// </summary>
+        private void DrawTutorial(Rect panel, float s)
+        {
+            Panel(panel);
+            Fill(new Rect(panel.x, panel.y, 3f * s, panel.height), _palette.HudAccent);
+
+            Rect line = new Rect(panel.x + 14f * s, panel.y + 10f * s, panel.width - 28f * s, 22f * s);
+            Label(line, "HOW TO PLAY", _palette.HudAccent, _title);
+
+            line.y += 28f * s;
+            line.height = 70f * s;
+            Label(line,
+                "1. Mine circle ore and carry it back to the Core using conveyor belts.\n" +
+                "2. Ore can only be spent after it reaches the Core.\n" +
+                "3. The wrong shape will jam a line. Right-click the jammed segment to clear it.",
+                _palette.HudText, _wrap);
         }
 
         // ------------------------------------------------------------------ status

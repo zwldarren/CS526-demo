@@ -310,17 +310,22 @@ namespace Facet.Core
 
             return from;
         }
-
         /// <summary>
-        /// Apply one shot's damage. A shot always carries the shape its turret eats, so it always
-        /// arrives with the shape the enemy is weak to: a wrong-shape line jams before it ever fires,
-        /// which is the whole reason the shape decides what a kill costs.
+        /// Hits one enemy for what the shot is worth against it: a shot whose ammunition matches the
+        /// enemy's weakness lands its full damage, and anything else lands a quarter of it. So a
+        /// turret's damage number is what it does to the enemy it was built for, not a flat rate
+        /// against the whole roster, and <see cref="TurretDef.Ammo"/> and
+        /// <see cref="EnemyDef.Weakness"/> are a real choice rather than a label on the card.
         /// </summary>
-        public void ApplyDamage(int id, float baseDamage)
+        public void ApplyDamage(int id, float baseDamage, ShapeType ammo)
         {
             if (!_slotById.TryGetValue(id, out int slot)) return;
 
-            _enemies[slot].Hp -= baseDamage;
+            float damage = baseDamage * (ammo == _enemies[slot].Weakness
+                ? Balance.WeaknessDamageMultiplier
+                : Balance.ResistantDamageMultiplier);
+
+            _enemies[slot].Hp -= damage;
 
             // Read what the report needs *before* RemoveAt, which reorders the array it would be read
             // from: the kind and the position are gone the moment the enemy is.
@@ -335,7 +340,7 @@ namespace Facet.Core
             }
             else
             {
-                _events.EnemyDamaged(id, kind, position, baseDamage);
+                _events.EnemyDamaged(id, kind, position, damage);
             }
         }
 

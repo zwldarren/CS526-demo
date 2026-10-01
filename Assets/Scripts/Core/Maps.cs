@@ -153,23 +153,28 @@ namespace Facet.Core
                 },
                 waves: new[]
                 {
-                    // Held for the player like the Quarry's first wave, but heavier: the same lesson
-                    // at twice the volume, so a single drill-and-decomposer line is already tight.
+                    // Both weaknesses from the start, and from two doors: eight Spikes through the
+                    // north, six Bulwarks through the west. A cannon answers the Spikes and barely
+                    // scratches the Bulwarks, so the second ammunition route has to be built before
+                    // this wave is called rather than after it goes wrong.
                     new WaveDefinition(0f,
                         new SpawnGroup(EnemyKind.Spike, 8, 0, 2f, 2.0f),
-                        new SpawnGroup(EnemyKind.Spike, 6, 0, 22f, 1.6f)),
+                        new SpawnGroup(EnemyKind.Bulwark, 6, 1, 2f, 1.6f)),
 
-                    // The second door, and the two groups arrive together: a line sized for the first
-                    // wave holds the north group and leaks the flank.
+                    // The west door again, ten Bulwarks this time and ahead of the six Spikes behind
+                    // them: the wave the first one only hinted at, at the volume that punishes a line
+                    // built entirely out of the gun that cannot hurt them.
                     new WaveDefinition(45f,
-                        new SpawnGroup(EnemyKind.Spike, 10, 1, 0f, 1.5f),
+                        new SpawnGroup(EnemyKind.Bulwark, 10, 1, 0f, 1.5f),
                         new SpawnGroup(EnemyKind.Spike, 6, 0, 8f, 1.8f)),
 
                     // Three doors, so the defence has to be a ring rather than a wall - and 50 s of
-                    // countdown is what pays for it.
+                    // countdown is what pays for it. The east door opens here on purpose, and the
+                    // Bulwarks come through it, which is what makes the ring have to be armed on both
+                    // sides rather than merely long.
                     new WaveDefinition(50f,
                         new SpawnGroup(EnemyKind.Spike, 12, 1, 0f, 1.3f),
-                        new SpawnGroup(EnemyKind.Spike, 8, 2, 10f, 1.5f)),
+                        new SpawnGroup(EnemyKind.Bulwark, 8, 2, 10f, 1.5f)),
                 }),
         };
 

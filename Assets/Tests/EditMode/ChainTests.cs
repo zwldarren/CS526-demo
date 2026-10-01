@@ -43,9 +43,11 @@ namespace Facet.Tests
         [Test]
         public void TheSecondChain_RunsFromAPatch_ToAKill()
         {
-            // Mine a square, split it, belt the halves, fire one: the whole chain, headless. One shell
-            // is 6 damage against a Spike's 6 HP, which is the design point of the second gun - half as
-            // many items per kill as the cannon, out of a slower barrel.
+            // Mine a square, split it, belt the halves, fire one: the whole chain, headless. The mortar
+            // was the cheap way to a Spike before weaknesses counted - one 6-damage shell against its 6
+            // HP - and it is the expensive way now: half-square ammo is resisted by a quarter, so the
+            // same shell lands 1.5 and the kill costs four of them instead of one. The second chain is
+            // still worth running, it is just no longer the shortcut past the first one.
             SimWorld world = SecondChain();
             Assert.Greater(world.Enemies.Spawn(EnemyKind.Spike, new Vec2(14.5f, 9.5f)), 0);
 
@@ -53,7 +55,8 @@ namespace Facet.Tests
 
             Assert.AreEqual(0, world.Enemies.AliveCount, "the mortar brought the spike down");
             Assert.AreEqual(1, world.Events.CountOf(SimEventKind.EnemyKilled));
-            Assert.AreEqual(1, world.Events.CountOf(SimEventKind.ShotFired), "with one shell");
+            Assert.AreEqual(4, world.Events.CountOf(SimEventKind.ShotFired),
+                "with four resisted shells, not the one it used to take");
         }
 
         [Test]

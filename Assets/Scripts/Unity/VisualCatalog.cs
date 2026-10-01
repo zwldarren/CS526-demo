@@ -124,7 +124,24 @@ namespace Facet.Game
     {
         public VisualStyle Spike = new VisualStyle();
 
-        public VisualStyle For(EnemyKind kind) => Spike;
+        /// <summary>
+        /// A hexagon against the Spike's shape, and a heavier steel blue against its colour: the two
+        /// enemies have to be told apart at a glance, because which gun can hurt which is the whole
+        /// rule the second mineral exists to teach.
+        /// </summary>
+        public VisualStyle Bulwark = new VisualStyle
+        {
+            Override = true,
+            Source = VisualSource.Procedural,
+            Shape = ProcShape.RegularPolygon,
+            Sides = 6,
+            Size = 0.30f,
+            Fill = new Color(0.35f, 0.55f, 0.85f, 1f),
+            Outline = new Color(0.10f, 0.15f, 0.25f, 1f),
+            OutlinePixels = 3f,
+        };
+
+        public VisualStyle For(EnemyKind kind) => kind == EnemyKind.Bulwark ? Bulwark : Spike;
     }
 
     /// <summary>Per-building overrides. Belts are not here: they are strips, not a single body, and

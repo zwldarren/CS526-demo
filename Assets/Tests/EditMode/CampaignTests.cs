@@ -55,6 +55,37 @@ namespace Facet.Tests
             }
         }
 
+        /// <summary>
+        /// Progression in the roster, the way the maps progress in minerals: the Quarry is Spikes only,
+        /// which is what leaves it teaching one ammunition route, and the Foundry is where the second
+        /// enemy and the second gun appear together. A Bulwark on the first map would put the weakness
+        /// rule in front of a player who has not been shown the gun that answers it.
+        /// </summary>
+        [Test]
+        public void QuarryUsesOneEnemyType_AndFoundryUsesBoth()
+        {
+            MapDefinition quarry = Maps.All[0];
+            MapDefinition foundry = Maps.All[1];
+
+            Assert.Greater(EnemyCount(quarry, EnemyKind.Spike), 0, "the Quarry sends Spikes");
+            Assert.AreEqual(0, EnemyCount(quarry, EnemyKind.Bulwark),
+                "and nothing else: the Quarry's one gun has one ammunition");
+
+            Assert.Greater(EnemyCount(foundry, EnemyKind.Spike), 0,
+                "the Foundry keeps the Spike, so the first route still has a job");
+            Assert.Greater(EnemyCount(foundry, EnemyKind.Bulwark), 0,
+                "and adds the Bulwark, so the second route is not optional");
+        }
+
+        /// <summary>How many of one enemy a map sends across all of its waves.</summary>
+        private static int EnemyCount(MapDefinition map, EnemyKind kind)
+        {
+            int total = 0;
+            foreach (WaveDefinition wave in map.Waves) total += wave.CountOf(kind);
+
+            return total;
+        }
+
         [Test]
         public void TheTutorialMap_MinesOneMineral_AndTheSecondMap_MinesBoth()
         {

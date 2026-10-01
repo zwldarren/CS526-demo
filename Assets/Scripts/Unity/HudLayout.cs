@@ -37,6 +37,14 @@ namespace Facet.Game
         /// <summary>The gap the info card floats above the bar with.</summary>
         public const float InfoGap = 8f;
 
+        /// <summary>Room for the tutorial's heading and its three wrapped lines.</summary>
+        public const float TutorialHeight = 112f;
+
+        /// <summary>The gap the tutorial sits below the status card with. Deliberately the same 8 the
+        /// info card floats above the bar with: those two are the HUD's only cards that hang off
+        /// another piece rather than off a screen edge, and both should read as belonging to it.</summary>
+        public const float TutorialGap = 8f;
+
         /// <summary>The gap between the status card's right edge and the stockpile readout - the
         /// readout has no panel of its own, so this is what says the two belong together.</summary>
         public const float StockpileGap = 10f;
@@ -63,6 +71,24 @@ namespace Facet.Game
         public static Rect Controls(float screenWidth, float s)
             => new Rect(screenWidth - (Margin + ControlsWidth) * s, Margin * s,
                 ControlsWidth * s, ControlsHeight * s);
+
+        /// <summary>
+        /// The tutorial card: directly under the status card, the width of it, on the campaign's first
+        /// map only. Anchored to the card rather than to the screen for the same reason the stockpile
+        /// readout is - it explains the corner of the HUD the player is reading, so it stays with it.
+        ///
+        /// Unlike the other cards it is not in <see cref="Insets"/>: it is the one piece of the HUD that
+        /// is shown and then gone for the rest of the run, so it is not worth the top strip the camera
+        /// rig would have to hold the map clear of for every map. It does take clicks, which is what
+        /// keeps a build under it from being a click the player cannot see.
+        /// </summary>
+        public static Rect Tutorial(float s)
+        {
+            Rect status = Status(s);
+
+            return new Rect(status.x, status.yMax + TutorialGap * s, StatusWidth * s,
+                TutorialHeight * s);
+        }
 
         /// <summary>
         /// The stockpile readout: the shape it counts and the number, with no panel behind them,
