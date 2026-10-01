@@ -25,7 +25,7 @@ namespace Facet.Core
             turret.Cooldown = MathF.Max(0f, turret.Cooldown - ctx.Dt);
 
             Vec2 centre = ctx.Grid.CellCenter(cell);
-            Aim(ref turret, in ctx, centre, spec.Range);
+            Aim(ref turret, in ctx, centre, spec.Range, spec.Ammo);
 
             if (MachineDelivery.TryFindWrongDelivery(ctx.Belts, cell, spec.Ammo, out Int2 wrong))
             {
@@ -47,11 +47,13 @@ namespace Facet.Core
             ctx.Events.ShotFired(cell, spec.Ammo, spec.Damage);
         }
 
-        /// <summary>Nearest enemy in range, and the barrel turned toward it. Which enemy that is comes
-        /// from the field itself, so the turret does not walk its slots.</summary>
-        private static void Aim(ref MachineState turret, in MachineTickContext ctx, Vec2 centre, float range)
+        /// <summary>The enemy this turret's ammunition is worth the most against - the nearest one
+        /// weak to it, or the nearest in range at all - and the barrel turned toward it. Which enemy
+        /// that is comes from the field itself, so the turret does not walk its slots.</summary>
+        private static void Aim(ref MachineState turret, in MachineTickContext ctx, Vec2 centre,
+            float range, ShapeType ammo)
         {
-            bool found = ctx.Enemies.TryFindNearest(centre, range, out int targetId, out Vec2 targetPosition);
+            bool found = ctx.Enemies.TryFindPreferred(centre, range, ammo, out int targetId, out Vec2 targetPosition);
             turret.HasTarget = found;
             turret.TargetId = found ? targetId : 0;
             if (!found) return;

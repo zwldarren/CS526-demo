@@ -349,16 +349,23 @@ namespace Facet.Core
         public EnemyState EnemyAt(int index) => _enemies[index];
 
         /// <summary>
-        /// Nearest live enemy within <paramref name="range"/> of <paramref name="centre"/>, and where
-        /// it is. Ties go to the lower slot, so which of two equidistant enemies a turret picks is a
-        /// function of the map state and not of anything the caller did. False when nothing is in
-        /// range, in which case the outputs are unusable.
+        /// The enemy a turret fed <paramref name="ammo"/> should shoot: the nearest one weak to it,
+        /// or the nearest in range at all when nothing weak is there. The weakness rule makes which
+        /// enemy a shot lands on worth four times the damage, so a turret prefers the enemy it was
+        /// built for - but it never holds its fire while something it can still scratch is in range,
+        /// because a resisted shot is some damage and a held one is none. Ties go to the lower slot,
+        /// so which of two equidistant enemies a turret picks is a function of the map state and not
+        /// of anything the caller did. False when nothing is in range, in which case the outputs are
+        /// unusable.
         /// </summary>
-        public bool TryFindNearest(Vec2 centre, float range, out int id, out Vec2 position)
+        public bool TryFindPreferred(Vec2 centre, float range, ShapeType ammo, out int id, out Vec2 position)
         {
             float bestSq = range * range;
-            id = 0;
-            position = Vec2.Zero;
+            float bestWeakSq = range * range;
+            int nearest = 0;
+            int nearestWeak = 0;
+            Vec2 nearestAt = Vec2.Zero;
+            Vec2 nearestWeakAt = Vec2.Zero;
 
             for (int i = 0; i < _count; i++)
             {
@@ -367,13 +374,33 @@ namespace Facet.Core
 
                 Vec2 delta = enemy.Position - centre;
                 float sq = delta.X * delta.X + delta.Y * delta.Y;
-                if (sq > bestSq) continue;
 
-                bestSq = sq;
-                id = enemy.Id;
-                position = enemy.Position;
+                if (sq <= bestSq)
+                {
+                    bestSq = sq;
+                    nearest = enemy.Id;
+                    nearestAt = enemy.Position;
+                }
+
+                // Tracked separately rather than after a "nearer than the nearest" skip: the enemy
+                // this ammo hurts may well be the farther one - preferring it is the whole point.
+                if (enemy.Weakness == ammo && sq <= bestWeakSq)
+                {
+                    bestWeakSq = sq;
+                    nearestWeak = enemy.Id;
+                    nearestWeakAt = enemy.Position;
+                }
             }
 
+            if (nearestWeak != 0)
+            {
+                id = nearestWeak;
+                position = nearestWeakAt;
+                return true;
+            }
+
+            id = nearest;
+            position = nearestAt;
             return id != 0;
         }
 

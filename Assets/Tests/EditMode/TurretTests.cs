@@ -138,6 +138,40 @@ namespace Facet.Tests
         }
 
         [Test]
+        public void Turret_PrefersTheEnemyItsAmmoHurts()
+        {
+            // A Bulwark closer than a Spike, both in range: the cannon aims at the Spike, because a
+            // matched shot lands four times what a resisted one does. Both spawn far enough off the
+            // turret's lane that neither charges the gun itself (3.6 and 5 tiles against a notice of
+            // 3.2), and the aim is read after one tick, before either has walked anywhere.
+            SimWorld world = CannonWorld();
+            world.Enemies.Spawn(EnemyKind.Bulwark, new Vec2(13.5f, 8.5f));
+            int spike = world.Enemies.Spawn(EnemyKind.Spike, new Vec2(14.5f, 7.5f));
+
+            world.Tick(InputCommand.None);
+
+            Assert.AreEqual(spike, Sim.MachineAt(world, Turret).TargetId,
+                "the nearer Bulwark barely feels a half-circle - the farther Spike is the shot worth taking");
+        }
+
+        [Test]
+        public void Turret_StillShootsAResistedEnemy_WhenNothingWeakIsInRange()
+        {
+            // The preference is not a refusal: with only a Bulwark in range the cannon plinks away at
+            // a quarter damage, and eight resisted halves still bring six health down. Its walk to the
+            // Core passes 3+ tiles from the gun, inside the 7-tile range the whole way.
+            SimWorld world = CannonWorld();
+            world.Enemies.Spawn(EnemyKind.Bulwark, new Vec2(13.5f, 8.5f));
+
+            TopUp(world, ShapeType.HalfCircle, 400, DeliveryCell);
+
+            Assert.AreEqual(0, world.Enemies.AliveCount, "the Bulwark is down");
+            Assert.AreEqual(8, world.ShotsFired,
+                Balance.Enemy(EnemyKind.Bulwark).Hp + " hp against a quarter of " +
+                Balance.Turret(BuildKind.Cannon).Damage + " dmg is exactly eight shots - a held shot is none");
+        }
+
+        [Test]
         public void WrongShapeDelivery_JamsTheSegment_AndClearingItRestoresTheLine()
         {
             SimWorld world = CannonWorld();
