@@ -500,7 +500,8 @@ namespace Facet.Core
 
                 // The maze tool: cheap per cell, three times a drill's health, and nothing to do. It
                 // exists so an enemy's walk can be shaped - and so a completely sealed Core is a
-                // decision the player can make and an enemy can undo, at 6 damage a second.
+                // decision the player can make and an enemy can undo, in the twenty seconds a Spike
+                // needs at it, or the fifteen a Bulwark does.
                 new MachineDef(new ContentId("wall"), BuildKind.Wall, TileKind.Wall, BehaviorKind.None,
                     cost: 2, name: "Wall", description: "blocks enemies · soaks their attacks",
                     recipeId: ContentId.None, interval: 0f, maxHp: 120f),
@@ -512,9 +513,10 @@ namespace Facet.Core
                     fireInterval: 1f, damage: 3f, range: 7f, projectileSpeed: 14f),
 
                 // Twice the damage on a cycle half again as long - 1.5 s against the cannon's 1 s, so
-                // two-thirds the shot rate, not half. Two cannon shots kill a Spike and one mortar
-                // shell does, which is the real trade: the same kill for half the items, bought with a
-                // slower reaction to whatever walks in next. Slower and heavier, not a straight upgrade.
+                // two-thirds the shot rate, not half. What the second gun really buys is the second
+                // ammunition, and that is what keeps it from being an upgrade of the first: half-squares
+                // are resisted by a Spike, so a mortar needs four shells where a cannon needs two shots,
+                // and they match a Bulwark, which one shell brings down. Each gun answers one enemy.
                 new TurretDef(BuildKind.Mortar, "Mortar", ShapeType.HalfSquare,
                     fireInterval: 1.5f, damage: 6f, range: 9f, projectileSpeed: 12f),
             };
@@ -530,11 +532,12 @@ namespace Facet.Core
                     hp: 6f, speed: 1.5f, damage: 6f, attackInterval: 1f,
                     weakness: ShapeType.HalfCircle, aggroRange: 1.6f, detectionRange: 2.5f),
 
-                // Slower but more dangerous, weak to ◡. The same six health as a Spike, so the same
-                // one mortar shell, but it walks at two-thirds the speed and hits the Core for ten
-                // instead of six - a wave of these is a question about the gun's cycle rather than the
-                // belt behind it. Its reach is the shipped default, the same two machine radii the
-                // Spike charges and hits from.
+                // Slower but more dangerous, and the exact mirror of the Spike: weak to ◡, so the
+                // mortar brings one down in a single shell while a cannon barely marks it. The same six
+                // health, but it walks at two-thirds the speed and hits the Core for ten instead of six
+                // - a wave of these asks whether the second ammunition route exists rather than whether
+                // it runs fast. Its reach is the shipped default: the same two machine radii the Spike
+                // charges and hits from.
                 new EnemyDef(new ContentId("bulwark"), EnemyKind.Bulwark, "Bulwark",
                     hp: 6f, speed: 1f, damage: 10f, attackInterval: 1.25f,
                     weakness: ShapeType.HalfSquare),

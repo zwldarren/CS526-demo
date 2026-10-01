@@ -139,16 +139,18 @@ namespace Facet.Core
                     new ShapePatch(new Int2(8, 32), 3, 2, ShapeType.Circle),
                     new ShapePatch(new Int2(52, 18), 3, 2, ShapeType.Circle),
 
-                    // The second mineral sits within a short belt of the Core on two sides. That is
-                    // deliberate: the mortar's ammunition is the cheap thing to reach, and the
-                    // circle line is the one that has to be invested in.
+                    // The second mineral sits within a short belt of the Core on two sides, and the
+                    // circle patches are all a walk away. Under the weakness rule that is not a
+                    // discount on the better gun: each line feeds the one gun that can hurt one enemy,
+                    // so the near square patches are what make the Bulwark's answer affordable at all,
+                    // and the circle line stays the long investment behind it.
                     new ShapePatch(new Int2(25, 8), 3, 2, ShapeType.Square),
                     new ShapePatch(new Int2(36, 30), 3, 2, ShapeType.Square),
                 },
                 spawnPoints: new[]
                 {
                     new Int2(32, 1),    // 0 North - waves 1 and 2
-                    new Int2(1, 20),    // 1 West  - waves 2 and 3
+                    new Int2(1, 20),    // 1 West  - every wave
                     new Int2(62, 20),   // 2 East  - opened by the last wave, on purpose
                 },
                 waves: new[]

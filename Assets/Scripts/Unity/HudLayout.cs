@@ -77,10 +77,9 @@ namespace Facet.Game
         /// map only. Anchored to the card rather than to the screen for the same reason the stockpile
         /// readout is - it explains the corner of the HUD the player is reading, so it stays with it.
         ///
-        /// Unlike the other cards it is not in <see cref="Insets"/>: it is the one piece of the HUD that
-        /// is shown and then gone for the rest of the run, so it is not worth the top strip the camera
-        /// rig would have to hold the map clear of for every map. It does take clicks, which is what
-        /// keeps a build under it from being a click the player cannot see.
+        /// It takes clicks, which is what keeps a build under it from being a click the player cannot
+        /// see, and <see cref="Insets"/> widens the top strip over it for as long as it is up - so it
+        /// neither hides a tile nor swallows a click meant for one.
         /// </summary>
         public static Rect Tutorial(float s)
         {
@@ -131,12 +130,24 @@ namespace Facet.Game
         /// the top strip the taller of the two top cards (the status card). The bottom strip is the bar
         /// alone - the info card floats above it, where the right strip has already cleared it - and the
         /// stockpile readout lives inside the top strip, beside the card that strip is measured from.
+        ///
+        /// <paramref name="tutorialUp"/> extends the top strip over the tutorial card, which is not a
+        /// permanent piece - it is up on the campaign's first map and gone for the rest of the run - but
+        /// while it is up it is as solid as the status card above it, so the map has to be able to get
+        /// out from under it too. Widened across the whole strip rather than only the left where the card
+        /// sits, which is how the status card already sets the strip for the shorter controls card beside
+        /// it: one number per side, and the panels arranged inside it.
         /// </summary>
-        public static ScreenInsets Insets(float s)
-            => new ScreenInsets(
+        public static ScreenInsets Insets(float s, bool tutorialUp = false)
+        {
+            float top = Mathf.Max(StatusHeight + (tutorialUp ? TutorialGap + TutorialHeight : 0f),
+                ControlsHeight);
+
+            return new ScreenInsets(
                 (Margin + StatusWidth) * s,
                 (Margin + Mathf.Max(ControlsWidth, InfoWidth)) * s,
-                (Margin + Mathf.Max(StatusHeight, ControlsHeight)) * s,
+                (Margin + top) * s,
                 (Margin + BarHeight) * s);
+        }
     }
 }

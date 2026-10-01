@@ -39,11 +39,18 @@ namespace Facet.Game
         private float _targetZoom;
         private Vector3 _panVelocity;
         private float _zoomVelocity;
+        private bool _tutorialUp;
 
-        public void Initialize(TileGrid grid)
+        /// <summary>
+        /// <paramref name="tutorialUp"/> is whether the HUD's "how to play" card is on screen - it is a
+        /// solid panel on the first map, so the map has to be able to get out from under it. Passed in
+        /// rather than read here: the rig knows the map, not the campaign.
+        /// </summary>
+        public void Initialize(TileGrid grid, bool tutorialUp = false)
         {
             _camera = GetComponent<Camera>();
             _grid = grid;
+            _tutorialUp = tutorialUp;
 
             _targetZoom = Mathf.Clamp(_camera.orthographicSize, minZoom, maxZoom);
 
@@ -124,7 +131,8 @@ namespace Facet.Game
         private Vector3 Clamp(Vector3 position, float zoom)
         {
             return PanLimits.Clamp(position, zoom, _camera.aspect, Screen.width, Screen.height,
-                _grid.Width, _grid.Height, HudLayout.Insets(HudLayout.Scale(Screen.height)),
+                _grid.Width, _grid.Height,
+                HudLayout.Insets(HudLayout.Scale(Screen.height), _tutorialUp),
                 edgeSlackScreens);
         }
     }

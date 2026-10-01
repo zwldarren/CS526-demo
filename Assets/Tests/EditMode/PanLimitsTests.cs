@@ -164,6 +164,18 @@ namespace Facet.Tests
                 Assert.LessOrEqual(info.yMax, bar.y + 1e-2f, "the info card reaches into the build bar" + at);
                 Assert.GreaterOrEqual(bar.y, screen.y - insets.Bottom - 1e-2f, "the build bar is taller than the bottom strip" + at);
                 Assert.LessOrEqual(bar.yMax, screen.y + 1e-2f, "the build bar runs off the screen" + at);
+
+                // The tutorial card is the one panel that is not permanent, so it is checked against the
+                // strip the camera clears *while it is up* - insets above is the map with no tutorial,
+                // which is every map but the first. This is the check that catches a card added under the
+                // status card without the strip growing to cover it: the failure is a band of tiles the
+                // player can neither see nor click, and nothing throws.
+                ScreenInsets withTutorial = HudLayout.Insets(s, tutorialUp: true);
+                Rect tutorial = HudLayout.Tutorial(s);
+
+                Assert.LessOrEqual(tutorial.xMax, withTutorial.Left + 1e-2f, "the tutorial card is wider than the left strip" + at);
+                Assert.LessOrEqual(tutorial.yMax, withTutorial.Top + 1e-2f,
+                    "the tutorial card reaches below the top strip the camera clears for it" + at);
             }
         }
 
@@ -174,6 +186,9 @@ namespace Facet.Tests
         /// but the check is written over every pair, because two pieces drifting into each other is the
         /// same bug wherever it comes from. Toasts are left out on purpose: they overlay the map, which is
         /// the one thing they are for.
+        ///
+        /// The tutorial card is in the list even though it is only up on the first map: it hangs off the
+        /// status card, which is the one arrangement in the HUD where a new piece is placed by eye.
         /// </summary>
         [Test]
         public void NoHudPieceOverlapsAnother()
@@ -188,6 +203,7 @@ namespace Facet.Tests
                 {
                     ("stockpile", HudLayout.Stockpile(screen.x, s)),
                     ("status", HudLayout.Status(s)),
+                    ("tutorial", HudLayout.Tutorial(s)),
                     ("controls", HudLayout.Controls(screen.x, s)),
                     ("info", HudLayout.Info(bar, s)),
                     ("bar", bar),

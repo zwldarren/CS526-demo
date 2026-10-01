@@ -227,7 +227,7 @@ namespace Facet.Game
             Frames.Frame = new ViewFrame(1f, WorldPerPixel, CursorCell);
 
             for (int i = 0; i < _views.Count; i++) _views[i].Rebind(World);
-            if (_rig != null) _rig.Initialize(World.TileGrid);
+            if (_rig != null) _rig.Initialize(World.TileGrid, Campaign.IsFirstMap);
             if (_hud != null) _hud.Initialize(World, palette, Campaign, _input.RequestSelect, _input.RequestRotate);
 
             Debug.Log("FACET: loaded map " + (Campaign.MapIndex + 1) + " of " + Campaign.MapCount +
@@ -260,7 +260,7 @@ namespace Facet.Game
 
             _rig = _camera.GetComponent<CameraRig>();
             if (_rig == null) _rig = _camera.gameObject.AddComponent<CameraRig>();
-            _rig.Initialize(World.TileGrid);
+            _rig.Initialize(World.TileGrid, Campaign.IsFirstMap);
         }
 
         private T AddView<T>(string viewName) where T : Component

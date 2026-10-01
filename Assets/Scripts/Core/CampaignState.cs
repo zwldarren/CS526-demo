@@ -30,6 +30,13 @@ namespace Facet.Core
         /// <summary>Is there a map after this one?</summary>
         public bool HasNext => MapIndex + 1 < MapCount;
 
+        /// <summary>
+        /// Is this the map the campaign opens on? The one thing that is true of the first map and no
+        /// other, so the HUD's "how to play" card and the camera's bound for it cannot disagree about
+        /// when it is up.
+        /// </summary>
+        public bool IsFirstMap => MapIndex == 0;
+
         public CampaignState(int mapCount, int mapIndex = 0)
         {
             MapCount = Math.Max(1, mapCount);

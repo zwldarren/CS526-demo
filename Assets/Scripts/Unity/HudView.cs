@@ -139,8 +139,9 @@ namespace Facet.Game
             Rect info = HudLayout.Info(bar, s);
 
             // The tutorial explains the first map's chain - mine, carry, spend - so it is up only
-            // while the run is on the map that asks the player to do it for the first time.
-            bool showTutorial = _campaign != null && _campaign.MapIndex == 0;
+            // while the run is on the map that asks the player to do it for the first time. The same
+            // predicate the camera rig is given, so the card and the map's bound cannot disagree.
+            bool showTutorial = _campaign != null && _campaign.IsFirstMap;
             Rect tutorial = HudLayout.Tutorial(s);
 
             // The HUD owns its panels: the pointer being over one is reported to the input source, so a
