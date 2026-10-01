@@ -536,11 +536,12 @@ namespace Facet.Core
                 // mortar brings one down in a single shell while a cannon barely marks it. The same six
                 // health, but it walks at two-thirds the speed and hits the Core for ten instead of six
                 // - a wave of these asks whether the second ammunition route exists rather than whether
-                // it runs fast. Its reach is the shipped default: the same two machine radii the Spike
-                // charges and hits from.
+                // it runs fast. And it notices defences further out than a Spike does (3.2 against
+                // 2.5): the siege engine leaves its lane for a turret the Spike would have walked past,
+                // so what stands between it and the Core has to hurt it, not just be in the way.
                 new EnemyDef(new ContentId("bulwark"), EnemyKind.Bulwark, "Bulwark",
                     hp: 6f, speed: 1f, damage: 10f, attackInterval: 1.25f,
-                    weakness: ShapeType.HalfSquare),
+                    weakness: ShapeType.HalfSquare, detectionRange: 3.2f),
             };
             return new ContentDatabase(machines, turrets, enemies, shapes, recipes);
         }

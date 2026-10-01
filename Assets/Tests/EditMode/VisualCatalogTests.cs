@@ -116,6 +116,8 @@ namespace Facet.Tests
                 Assert.IsNotNull(palette.Visuals, "a palette always carries an override block");
                 Assert.IsFalse(palette.Visuals.Core.Override);
                 Assert.IsFalse(palette.Visuals.Enemies.Spike.Override);
+                Assert.IsFalse(palette.Visuals.Enemies.Bulwark.Override,
+                    "the shipped Bulwark is told apart by body colour - a fixed hexagon would hide the health its polygon count reports");
                 Assert.AreEqual(0, palette.Visuals.Items.Entries.Length,
                     "a fresh palette authors nothing, so every shape draws the built-in look");
                 Assert.AreEqual(0, palette.Visuals.Patches.Entries.Length);

@@ -125,13 +125,15 @@ namespace Facet.Game
         public VisualStyle Spike = new VisualStyle();
 
         /// <summary>
-        /// A hexagon against the Spike's shape, and a heavier steel blue against its colour: the two
-        /// enemies have to be told apart at a glance, because which gun can hurt which is the whole
-        /// rule the second mineral exists to teach.
+        /// An authored alternative body for the Bulwark: a heavier steel-blue hexagon. Left unticked
+        /// in the shipped look on purpose - an enemy's polygon count already says how damaged it is,
+        /// so a fixed six-sided body would hide the Bulwark's health (and, at full health, draw the
+        /// exact hexagon a fresh Spike wears). What tells the two kinds apart out of the box is body
+        /// colour - <see cref="Palette.BulwarkBody"/> against <see cref="Palette.SpikeBody"/> - because
+        /// which gun can hurt which is the whole rule the second mineral exists to teach.
         /// </summary>
         public VisualStyle Bulwark = new VisualStyle
         {
-            Override = true,
             Source = VisualSource.Procedural,
             Shape = ProcShape.RegularPolygon,
             Sides = 6,

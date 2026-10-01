@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Facet.Core;
 using UnityEngine;
@@ -16,9 +17,9 @@ namespace Facet.Game
     /// the belts in, so the counter-pick is one glance rather than a trip through the codex.
     ///
     /// The body and the weakness icon may each be overridden from the Palette's
-    /// <see cref="Palette.Visuals"/>: an enemy body override replaces the health-shaped polygon, and
-    /// the weakness icon follows the same shape override the belt items use, so the two keep reading
-    /// as one shape.
+    /// <see cref="Palette.Visuals"/>: an enemy body override replaces the health-shaped polygon for
+    /// that kind, and the weakness icon follows the same shape override the belt items use, so the
+    /// two keep reading as one shape.
     ///
     /// It is also the first consumer of the simulation's event stream: a shot that lands flashes the
     /// enemy it hit, and a kill leaves an expanding ring where the enemy died. Both come straight off
@@ -41,8 +42,12 @@ namespace Facet.Game
         /// <summary>Bodies indexed by side count minus three: [0]=3 sides (dead-ish) .. [3]=6 sides (full health).</summary>
         private readonly Vector2[][] _bodies = new Vector2[4][];
 
-        private VisualStyle _spike;
-        private Vector2[] _spikePoints;
+        /// <summary>Each kind's override look, resolved once and indexed by (int)EnemyKind: an
+        /// unticked style draws the health polygon below, a ticked one replaces it - per kind, so a
+        /// re-skinned Spike says nothing about the Bulwark.</summary>
+        private VisualStyle[] _styles;
+        private Vector2[][] _points;
+
         private ShapeIconSet _weakness;
 
         /// <summary>Reused per frame: which spawn points the NEXT wave walks in from. Sized to the
@@ -59,8 +64,16 @@ namespace Facet.Game
             for (int sides = 3; sides <= 6; sides++)
                 _bodies[sides - 3] = ProcMesh.RegularPolygon(sides, Colors.Enemies.BodyRadius, 90f);
 
-            _spike = Colors.Visuals.Enemies.Spike;
-            _spikePoints = VisualShapes.Points(_spike, Colors.CircleSides);
+            // One style per kind, not one for the field: the Bulwark's override must not leak onto
+            // the Spike, and an unticked entry still costs one cached point array and nothing else.
+            var kinds = (EnemyKind[])Enum.GetValues(typeof(EnemyKind));
+            _styles = new VisualStyle[kinds.Length];
+            _points = new Vector2[kinds.Length][];
+            foreach (EnemyKind kind in kinds)
+            {
+                _styles[(int)kind] = Colors.Visuals.Enemies.For(kind);
+                _points[(int)kind] = VisualShapes.Points(_styles[(int)kind], Colors.CircleSides);
+            }
 
             // Same shape override as the belt items, so a weakness icon and the ammo that counters it
             // are recognisably the same shape; no outline - an outlined shape inside an outlined body
@@ -187,19 +200,21 @@ namespace Facet.Game
             }
         }
 
-        /// <summary>The body: the health-shaped polygon unless an override replaces it.</summary>
+        /// <summary>The body: the health-shaped polygon unless this kind's override replaces it.</summary>
         private void AppendEnemyBody(in EnemySnapshot enemy, Vector2 at, Color outline, float outlineWidth)
         {
-            if (_spike.Override && _spike.Source == VisualSource.Sprite)
+            VisualStyle style = _styles[(int)enemy.Kind];
+
+            if (style.Override && style.Source == VisualSource.Sprite)
             {
-                DrawSprite(_spike, at, Color.white);
+                DrawSprite(style, at, Color.white);
                 return;
             }
 
-            if (_spike.Override)
+            if (style.Override)
             {
-                AppendPolygon(_spikePoints, at + _spike.Offset, _spike.Fill, _spike.Outline,
-                    OutlineWidthFor(_spike));
+                AppendPolygon(_points[(int)enemy.Kind], at + style.Offset, style.Fill, style.Outline,
+                    OutlineWidthFor(style));
                 return;
             }
 

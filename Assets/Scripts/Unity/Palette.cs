@@ -70,6 +70,11 @@ namespace Facet.Game
         [Tooltip("Spike: fast and light, weak to half-circles.")]
         public Color SpikeBody = new Color(0.867f, 0.286f, 0.247f, 1f);
 
+        [Tooltip("Bulwark: slow and heavy, weak to half-squares. A darker brick red than the Spike - " +
+            "colour says which side it is on, so the second enemy stays in the enemy family rather " +
+            "than wearing one of the ammunitions' cool colours.")]
+        public Color BulwarkBody = new Color(0.545f, 0.173f, 0.192f, 1f);
+
         [Tooltip("Wave entry points: brighter while the next wave is counting down.")]
         public Color SpawnMarker = new Color(0.851f, 0.290f, 0.259f, 1f);
 
@@ -178,7 +183,7 @@ namespace Facet.Game
             => behavior == BehaviorKind.Turret ? TurretBody : MachineBody;
 
         /// <summary>Body colour for an enemy.</summary>
-        public Color EnemyColor(EnemyKind kind) => SpikeBody;
+        public Color EnemyColor(EnemyKind kind) => kind == EnemyKind.Bulwark ? BulwarkBody : SpikeBody;
 
         /// <summary>Colour for one shape. None falls back to the outline.</summary>
         public Color ShapeColor(ShapeType shape)
