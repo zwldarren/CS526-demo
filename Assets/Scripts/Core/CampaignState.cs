@@ -31,9 +31,13 @@ namespace Facet.Core
         public bool HasNext => MapIndex + 1 < MapCount;
 
         /// <summary>
-        /// Is this the map the campaign opens on? The one thing that is true of the first map and no
-        /// other, so the HUD's "how to play" card and the camera's bound for it cannot disagree about
-        /// when it is up.
+        /// Is this map 0 - the map the tutorial card and its camera strip belong to? The one thing
+        /// that is true of that map and no other, so the HUD's "how to play" card and the camera's
+        /// bound for it cannot disagree about when it is up.
+        ///
+        /// This is the map's number, not the order it happens to be played in: a campaign started
+        /// partway through (the driver's start map) opens on a later map, and the tutorial stays down
+        /// there - its text is about this map's chain, not about whatever map came first for that run.
         /// </summary>
         public bool IsFirstMap => MapIndex == 0;
 

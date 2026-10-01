@@ -125,6 +125,11 @@ namespace Facet.Game
             _pixel.Apply();
         }
 
+        /// <summary>Is the "how to play" card up? The one predicate the card's drawing, its claim on
+        /// the pointer and the toast's clearance all read - and the same one the driver hands the
+        /// camera rig - so no two pieces of the frame can disagree about whether the card is there.</summary>
+        private bool ShowTutorial => _campaign != null && _campaign.IsFirstMap;
+
         private void OnGUI()
         {
             if (_world == null || _palette == null) return;
@@ -141,7 +146,7 @@ namespace Facet.Game
             // The tutorial explains the first map's chain - mine, carry, spend - so it is up only
             // while the run is on the map that asks the player to do it for the first time. The same
             // predicate the camera rig is given, so the card and the map's bound cannot disagree.
-            bool showTutorial = _campaign != null && _campaign.IsFirstMap;
+            bool showTutorial = ShowTutorial;
             Rect tutorial = HudLayout.Tutorial(s);
 
             // The HUD owns its panels: the pointer being over one is reported to the input source, so a
@@ -225,7 +230,7 @@ namespace Facet.Game
             float width = Mathf.Min(textSize.x + 2f * padding, Screen.width - 2f * HudLayout.Margin * s);
             float height = textSize.y + 16f * s;
 
-            Rect toast = HudLayout.Toast(Screen.width, s, width, height);
+            Rect toast = HudLayout.Toast(Screen.width, s, width, height, ShowTutorial);
             Fill(toast, WithAlpha(_palette.HudPanel, fade));
             Border(toast, WithAlpha(_palette.HudWarn, fade), 2f * s);
             Label(toast, text, WithAlpha(_palette.HudWarn, fade), _alert);
@@ -277,8 +282,10 @@ namespace Facet.Game
 
         /// <summary>
         /// The one piece of the HUD that explains the game rather than reporting it: the first map's
-        /// chain in the order the player has to do it - mine, carry, spend - and the jam rule, which is
-        /// the only part of a belt that watching one run does not make obvious.
+        /// chain in the order the player has to do it - mine, carry, spend - and the two rules that
+        /// watching one run does not make obvious: the jam, and the weakness. The weakness rule decides
+        /// nothing on this map (every enemy here is a Spike), so it is taught here, one line early,
+        /// rather than on the next map in the middle of the wave that first punishes ignoring it.
         ///
         /// A card rather than a dismissable popup: it sits in the corner the player is already reading,
         /// so it costs no click and leaves no state behind when the run moves on to the next map.
@@ -292,11 +299,12 @@ namespace Facet.Game
             Label(line, "HOW TO PLAY", _palette.HudAccent, _title);
 
             line.y += 28f * s;
-            line.height = 70f * s;
+            line.height = 92f * s;
             Label(line,
                 "1. Mine circle ore and carry it back to the Core using conveyor belts.\n" +
                 "2. Ore can only be spent after it reaches the Core.\n" +
-                "3. The wrong shape will jam a line. Right-click the jammed segment to clear it.",
+                "3. The wrong shape will jam a line. Right-click the jammed segment to clear it.\n" +
+                "4. Match ammo to the enemy's weakness icon - anything else deals a quarter.",
                 _palette.HudText, _wrap);
         }
 

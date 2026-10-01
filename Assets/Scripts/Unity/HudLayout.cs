@@ -37,8 +37,8 @@ namespace Facet.Game
         /// <summary>The gap the info card floats above the bar with.</summary>
         public const float InfoGap = 8f;
 
-        /// <summary>Room for the tutorial's heading and its three wrapped lines.</summary>
-        public const float TutorialHeight = 112f;
+        /// <summary>Room for the tutorial's heading and its four lines.</summary>
+        public const float TutorialHeight = 134f;
 
         /// <summary>The gap the tutorial sits below the status card with. Deliberately the same 8 the
         /// info card floats above the bar with: those two are the HUD's only cards that hang off
@@ -116,10 +116,13 @@ namespace Facet.Game
         /// <summary>
         /// A toast: centred on the screen just under the top cards, sized to its own text by the view.
         /// It overlays the map on purpose - it is news about a click, so it arrives where the player who
-        /// clicked is looking, and it takes no clicks itself.
+        /// clicked is looking, and it takes no clicks itself. While the tutorial card is up it floats
+        /// under that card instead: the card is solid HUD for as long as it is there, and the news
+        /// should not land on the instructions.
         /// </summary>
-        public static Rect Toast(float screenWidth, float s, float width, float height)
-            => new Rect((screenWidth - width) * 0.5f, Insets(s).Top + ToastGap * s, width, height);
+        public static Rect Toast(float screenWidth, float s, float width, float height,
+            bool tutorialUp = false)
+            => new Rect((screenWidth - width) * 0.5f, Insets(s, tutorialUp).Top + ToastGap * s, width, height);
 
         /// <summary>
         /// How far the permanent pieces reach into the screen from each edge, in pixels: the strip the
