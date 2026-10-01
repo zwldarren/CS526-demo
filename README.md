@@ -257,6 +257,49 @@ it reads the window it cares about and the present is guaranteed to be in there.
 anything a very busy tick pushed out of the ring, so a reader can tell "nothing happened" from "I
 fell behind" rather than guessing.
 
+## Publishing the playable build
+
+The player is one command, because a build that only exists on the machine that made it is not a
+deliverable:
+
+```bash
+bash Tools/publish-pages.sh              # build, mirror the result into docs/, print the publish steps
+bash Tools/publish-pages.sh --no-build   # mirror the Builds/WebGL already on disk
+```
+
+`Tools/build-webgl.sh` — or **FACET ▸ Build WebGL** in the Editor — writes the player to
+`Builds/WebGL`, which is git-ignored: it is a 13 MB artefact. Pages serves one folder out of the
+repository, so `publish-pages.sh` mirrors that folder into `docs/` and the repository carries that
+instead. `docs/` is generated, not source: every run replaces it wholesale, so a file the build
+stopped emitting cannot linger and be served, and nothing in it should be edited by hand.
+
+Three things are what let the player survive a plain static host, and all three are in the build
+rather than in a checklist someone has to remember:
+
+* **Brotli with Unity's decompression fallback.** Pages sends no `Content-Encoding` header and a
+  repository cannot set one, so a compressed payload has to be unpacked by the loader in JavaScript.
+  Compressing *without* the fallback downloads fine and then fails to start, which reads as a broken
+  game rather than as a misconfigured host.
+* **`.nojekyll`.** Pages runs Jekyll over what it serves, and Jekyll drops anything it reads as its own
+  templating. The marker is what turns that pass off.
+* **Relative URLs.** `index.html` addresses the player as `Build/...` and not `/Build/...`, so the site
+  works under the `/CS526-demo/` sub-path that a project page is served from.
+
+Once per repository: **Settings ▸ Pages ▸ Source: Deploy from a branch ▸ `main` / `/docs` ▸ Save**,
+which serves the site at <https://zwldarren.github.io/CS526-demo/>. After that, a publish is an
+ordinary commit:
+
+```bash
+git add docs && git commit -m "build(pages): publish the WebGL player" && git push
+```
+
+One thing this repository does not currently satisfy: **Pages on the Free plan is public repositories
+only**, so a private `zwldarren/CS526-demo` blocks the Pages setting outright. GitHub Pro lifts that
+(it is free for students through the GitHub Student Developer Pack), and so does making the repository
+public — but a Pages site cannot be access-controlled below GitHub Enterprise Cloud, so a site
+published from a private repository is still readable by anyone with the link. Switching a repository
+from public to private unpublishes its site.
+
 ## Tests
 
 | Suite | Where | What it covers |

@@ -173,3 +173,11 @@ Packages/packages-lock.json linguist-generated
 
 # Exceptions for .asset files such as lightning pre-baking
 LightingData.asset     binary
+
+# The published WebGL player (docs/): a generated mirror of Builds/WebGL, replaced wholesale by
+# Tools/publish-pages.sh. Pages serves the committed bytes and does NOT resolve Git LFS pointers, so
+# the template's *.png - which the rules above would send to LFS - would arrive as a 130-byte text
+# stub and leave the loading bar and the fullscreen button without their images. The whole mirror is
+# therefore stored directly and filter-free, which also settles the payloads: they are packed, huge,
+# and rebuilt on every publish, so normalising or diffing them is work nobody wants.
+docs/**                -filter -text -diff
